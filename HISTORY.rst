@@ -6,8 +6,12 @@ History
 .. to_doc
 
 ---------------------
-0.15.14.dev0
+0.15.14 (2025-01-20)
 ---------------------
+* Fix install_wheel test by switching to docker and disabling
+  ``outputs_to_working_directory`` (thanks to `@mvdbeek`_). `Pull Request 436`_
+* Add no-op BaseAction.write_from_path for actions that don't need staging
+  (thanks to `@mvdbeek`_). `Pull Request 435`_
 
 ---------------------
 0.15.13 (2026-01-12)
@@ -574,6 +578,8 @@ History
 
 
 .. github_links
+.. _Pull Request 436: https://github.com/galaxyproject/pulsar/pull/436
+.. _Pull Request 435: https://github.com/galaxyproject/pulsar/pull/435
 .. _Pull Request 432: https://github.com/galaxyproject/pulsar/pull/432
 .. _Pull Request 433: https://github.com/galaxyproject/pulsar/pull/433
 .. _Pull Request 421: https://github.com/galaxyproject/pulsar/pull/421
