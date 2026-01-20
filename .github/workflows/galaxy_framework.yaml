@@ -8,11 +8,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.9']
+        python-version: ['3.10']
         galaxy-branch: ['dev', 'master']
         metadata-strategy: ['directory']
         include:
-          - python-version: '3.9'
+          - python-version: '3.10'
             galaxy-branch: 'dev'
             metadata-strategy: 'extended'
     services:
