@@ -5,7 +5,7 @@ pyyaml
 galaxy-job-metrics>=21.9.0
 galaxy-objectstore>=19.9.0
 galaxy-tool-util>=19.9.0
-galaxy-util>=22.1.2
+galaxy-util>=23.0
 paramiko
 typing-extensions
 pydantic-tes>=0.1.5
