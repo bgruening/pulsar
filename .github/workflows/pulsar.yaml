@@ -5,6 +5,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-22.04
     strategy:
+      fail-fast: false
       matrix:
         python-version: ['3.7']
         tox-env: [lint, docs]
@@ -27,6 +28,7 @@ jobs:
     name: MyPy
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         tox-env: [mypy]
         python-version: ['3.14']
@@ -48,6 +50,7 @@ jobs:
     name: Run Tests
     runs-on: ubuntu-22.04
     strategy:
+      fail-fast: false
       matrix:
         tox-env: [test-ci, test-unit]
         python-version: ['3.7', '3.11']
