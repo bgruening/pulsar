@@ -1,19 +1,21 @@
 """Tests for ``pulsar.client.amqp_exchange``."""
+
 import time
 import threading
+
+import pytest
 
 from pulsar.client import amqp_exchange
 
 from .test_utils import (
     skip_unless_module,
-    timed,
 )
 
 TEST_CONNECTION = "memory://test_amqp"
 
 
 @skip_unless_module("kombu")
-@timed(15)
+@pytest.mark.timeout(15)
 def test_amqp():
     """Test the client PulsarExchange abstraction with an in-memory connection."""
     manager1_exchange = amqp_exchange.PulsarExchange(TEST_CONNECTION, "manager_test")
@@ -63,7 +65,7 @@ class TestThread(threading.Thread):
 
     def wait_for_message(self, expected_message):
         while self:
-            time.sleep(.05)
+            time.sleep(0.05)
         if self.message != expected_message:
             msg = "Expected [{}], got [{}].".format(expected_message, self.message)
             raise AssertionError(msg)

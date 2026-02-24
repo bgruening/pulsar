@@ -11,9 +11,9 @@ boto3
 # For testing
 simple-job-files
 pytest
+pytest-timeout
 webtest
 coverage
-stopit
 
 # For dev
 sphinx
