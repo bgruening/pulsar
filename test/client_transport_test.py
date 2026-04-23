@@ -8,6 +8,7 @@ import requests as requests_module
 from simplejobfiles.app import JobFilesApp
 from webtest import TestApp
 
+from pulsar.client.exceptions import PulsarClientTransportError
 from pulsar.client.transport.standard import UrllibTransport
 from pulsar.client.transport.curl import PycurlTransport
 from pulsar.client.transport.curl import post_file
@@ -78,6 +79,23 @@ def test_curl_put_get():
             post_file(request_url, input)
             get_file(request_url, output)
             assert open(output).read() == "helloworld"
+
+
+def test_urllib_status_code():
+    """The urllib transport must surface the HTTP status code on the raised
+    PulsarClientTransportError so retry classifiers can read it."""
+    with files_server() as (server, directory):
+        server_url = server.application_url
+        absent_path = os.path.join(directory, f"test_for_GET_absent_{str(uuid4())}")
+        request_url = "{}?path={}".format(server_url, absent_path)
+        try:
+            UrllibTransport().execute(request_url, data=None)
+        except PulsarClientTransportError as exc:
+            assert isinstance(exc.transport_code, int) and exc.transport_code >= 400, (
+                f"transport_code should hold the HTTP status, got {exc.transport_code!r}"
+            )
+        else:
+            raise AssertionError("urllib transport did not raise on missing file")
 
 
 def test_curl_status_code():
