@@ -103,21 +103,24 @@ def test_curl_status_code():
         server_url = server.application_url
         path = os.path.join(directory, f"test_for_GET_absent_{str(uuid4())}")
         request_url = "{}?path={}".format(server_url, path)
-        # Verify curl doesn't just silently swallow errors.
-        exception_raised = False
         try:
             get_file(request_url, os.path.join(directory, "test"))
-        except Exception:
-            exception_raised = True
-        assert exception_raised
+        except PulsarClientTransportError as exc:
+            assert isinstance(exc.transport_code, int) and exc.transport_code >= 400, (
+                f"transport_code should hold the HTTP status, got {exc.transport_code!r}"
+            )
+        else:
+            raise AssertionError("curl get_file did not raise on missing file")
 
         post_request_url = "{}?path={}".format(server_url, "/usr/bin/cow")
-        exception_raised = False
         try:
             post_file(post_request_url, os.path.join(directory, "test"))
-        except Exception:
-            exception_raised = True
-        assert exception_raised
+        except PulsarClientTransportError as exc:
+            assert isinstance(exc.transport_code, int) and exc.transport_code >= 400, (
+                f"transport_code should hold the HTTP status, got {exc.transport_code!r}"
+            )
+        else:
+            raise AssertionError("curl post_file did not raise on error response")
 
 
 class _FlakyApp:
