@@ -14,6 +14,7 @@ except ImportError:
 
 import logging
 
+from pulsar.client.transport.transient import is_transient_http_error
 from pulsar.client.util import filter_destination_params
 from pulsar.managers import (
     ManagerProxy,
@@ -53,6 +54,8 @@ class StatefulManagerProxy(ManagerProxy):
         min_polling_interval = float(manager_options.get("min_polling_interval", DEFAULT_MIN_POLLING_INTERVAL))
         preprocess_retry_action_kwds = filter_destination_params(manager_options, "preprocess_action_")
         postprocess_retry_action_kwds = filter_destination_params(manager_options, "postprocess_action_")
+        preprocess_retry_action_kwds.setdefault("should_retry", is_transient_http_error)
+        postprocess_retry_action_kwds.setdefault("should_retry", is_transient_http_error)
         self.__preprocess_action_executor = RetryActionExecutor(**preprocess_retry_action_kwds)
         self.__postprocess_action_executor = RetryActionExecutor(**postprocess_retry_action_kwds)
         self.min_polling_interval = datetime.timedelta(0, min_polling_interval)

@@ -15,6 +15,7 @@ from pulsar.client.transport.curl import post_file
 from pulsar.client.transport.curl import get_file
 from pulsar.client.transport.requests import get_file as requests_get_file
 from pulsar.client.transport.requests import post_file as requests_post_file
+from pulsar.client.transport.transient import is_transient_http_error
 from pulsar.client.transport.tus import find_tus_endpoint
 from pulsar.client.transport import get_transport
 from pulsar.managers.util.retry import RetryActionExecutor
@@ -124,18 +125,20 @@ def test_curl_status_code():
 
 
 class _FlakyApp:
-    """WSGI middleware that returns 502 for the first ``fail_count`` requests."""
+    """WSGI middleware that returns ``status`` for the first ``fail_count``
+    requests, then delegates to the wrapped app."""
 
-    def __init__(self, app, fail_count):
+    def __init__(self, app, fail_count, status="502 Bad Gateway"):
         self.app = app
         self.fail_count = fail_count
+        self.status = status
         self.attempts = 0
 
     def __call__(self, environ, start_response):
         self.attempts += 1
         if self.attempts <= self.fail_count:
-            start_response("502 Bad Gateway", [("Content-Type", "text/html")])
-            return [b"<html><body><h1>502 Bad Gateway</h1></body></html>"]
+            start_response(self.status, [("Content-Type", "text/html")])
+            return [b"<html><body><h1>" + self.status.encode() + b"</h1></body></html>"]
         return self.app(environ, start_response)
 
 
@@ -233,6 +236,39 @@ def test_requests_persistent_failure_exhausts_retries():
 
             assert flaky.attempts == max_retries + 1
             assert not os.path.exists(output_path), "no file should have been written"
+
+
+def test_permanent_4xx_fails_fast_under_executor():
+    """A 404 must NOT be retried — retrying client errors wastes time and
+    delays job failure. The executor's should_retry predicate (default
+    is_transient_http_error) should let the HTTPError bubble on first hit."""
+    max_retries = 5
+    with temp_directory() as directory:
+        flaky = _FlakyApp(JobFilesApp(directory), fail_count=10, status="404 Not Found")
+        with server_for_test_app(TestApp(flaky)) as server:
+            request_url = "{}?path={}".format(server.application_url, str(Path(directory) / "x"))
+            output_path = os.path.join(directory, "downloaded")
+
+            executor = RetryActionExecutor(
+                max_retries=max_retries,
+                interval_start=0.01,
+                interval_step=0.01,
+                interval_max=0.05,
+                should_retry=is_transient_http_error,
+            )
+            try:
+                executor.execute(
+                    lambda: requests_get_file(request_url, output_path),
+                    "permanent-404-test",
+                )
+            except requests_module.HTTPError:
+                pass
+            else:
+                raise AssertionError("404 HTTPError should have propagated immediately")
+
+            assert flaky.attempts == 1, (
+                f"4xx must not be retried, but the server saw {flaky.attempts} attempts"
+            )
 
 
 @skip_unless_module("pycurl")
