@@ -72,10 +72,12 @@ def post_file(url, path):
     c = _new_curl_object_for_url(url)
     c.setopt(c.HTTPPOST, [("file", (c.FORM_FILE, path.encode('ascii')))])
     c.perform()
-    status_code = c.getinfo(HTTP_CODE)
-    if int(status_code) != 200:
-        message = POST_FAILED_MESSAGE % (url, status_code)
-        raise Exception(message)
+    status_code = int(c.getinfo(HTTP_CODE))
+    if status_code != 200:
+        raise PulsarClientTransportError(
+            transport_code=status_code,
+            transport_message=POST_FAILED_MESSAGE % (url, status_code),
+        )
 
 
 def get_size(url) -> int:
@@ -119,8 +121,10 @@ def get_file(url, path: str):
         c.perform()
         status_code = int(c.getinfo(HTTP_CODE))
         if status_code not in success_codes:
-            message = GET_FAILED_MESSAGE % (url, status_code)
-            raise Exception(message)
+            raise PulsarClientTransportError(
+                transport_code=status_code,
+                transport_message=GET_FAILED_MESSAGE % (url, status_code),
+            )
     finally:
         buf.close()
 
