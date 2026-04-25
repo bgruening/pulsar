@@ -5,10 +5,7 @@ from .base.base_drmaa import BaseDrmaaManager
 from .util.sudo import sudo_popen
 from ..managers import status
 
-try:
-    from galaxy.tools.deps.commands import which
-except ImportError:
-    from galaxy.tool_util.deps.commands import which
+from galaxy.util.commands import which
 
 from logging import getLogger
 

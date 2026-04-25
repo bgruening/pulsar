@@ -8,8 +8,8 @@ from pulsar.client.container_job_config import (
 
 
 def test_docs():
-    print(GcpJobParams.schema())
-    print(TesJobParams.schema())
+    print(GcpJobParams.model_json_schema())
+    print(TesJobParams.model_json_schema())
 
 
 def test_gcp_defaults():

@@ -1,4 +1,4 @@
-webob
+webob>=1.8.8
 psutil
 pyyaml
 galaxy-job-metrics>=21.9.0
