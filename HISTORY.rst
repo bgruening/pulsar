@@ -8,6 +8,9 @@ History
 ---------------------
 0.15.15.dev0
 ---------------------
+* Add support for Python 3.12, 3.13, and 3.14, drop ``distutils`` usage in
+  ``setup.py``, replace deprecated ``datetime.utcnow()`` and
+  ``ConfigParser.readfp()``.
 
 ---------------------
 0.15.14 (2025-01-20)
