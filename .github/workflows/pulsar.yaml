@@ -54,13 +54,6 @@ jobs:
       matrix:
         tox-env: [test-ci, test-unit]
         python-version: ['3.7', '3.11', '3.12', '3.13', '3.14']
-        exclude:
-        # Integration tests hang in transfer workers on 3.13/3.14; tracked
-        # separately. Unit tests still cover those versions.
-        - tox-env: test-ci
-          python-version: '3.13'
-        - tox-env: test-ci
-          python-version: '3.14'
         include:
         - tox-env: install_wheel
           python-version: '3.10'
