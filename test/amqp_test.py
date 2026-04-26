@@ -73,4 +73,109 @@ class TestThread(threading.Thread):
         self.join(2)
 
 
+@skip_unless_module("kombu")
+def test_non_durable_queue_and_exchange_default():
+    """Default is non-durable to preserve legacy behavior: RabbitMQ refuses to
+    redeclare an existing queue with mismatched durability, so flipping the
+    default would break upgrades. Operators opt in via ``amqp_durable: true``.
+    """
+    exchange = amqp_exchange.PulsarExchange(TEST_CONNECTION, "manager_durable_default")
+    queue = exchange._PulsarExchange__queue("status_update")
+    assert queue.durable is False
+    assert queue.exchange.durable is False
+
+
+@skip_unless_module("kombu")
+def test_durable_can_be_enabled():
+    """Operators who want broker-restart durability opt in explicitly."""
+    exchange = amqp_exchange.PulsarExchange(TEST_CONNECTION, "manager_durable_on", durable=True)
+    queue = exchange._PulsarExchange__queue("status_update")
+    assert queue.durable is True
+    assert queue.exchange.durable is True
+
+
+@skip_unless_module("kombu")
+def test_durable_publishes_use_persistent_delivery_mode():
+    """Persistent delivery (delivery_mode=2) is required for messages to survive
+    broker restart even when the queue itself is durable.
+    """
+    exchange = amqp_exchange.PulsarExchange(TEST_CONNECTION, "manager_dm", durable=True)
+    publish_kwds = exchange._PulsarExchange__prepare_publish_kwds("test")
+    assert publish_kwds.get("delivery_mode") == 2
+
+
+@skip_unless_module("kombu")
+def test_non_durable_publishes_do_not_force_persistent_mode():
+    exchange = amqp_exchange.PulsarExchange(TEST_CONNECTION, "manager_dm_off")
+    publish_kwds = exchange._PulsarExchange__prepare_publish_kwds("test")
+    assert "delivery_mode" not in publish_kwds
+
+
+@skip_unless_module("kombu")
+def test_factory_defaults_durable_false():
+    from pulsar.client import amqp_exchange_factory
+    exchange = amqp_exchange_factory.get_exchange(TEST_CONNECTION, "factory_durable_default", {})
+    queue = exchange._PulsarExchange__queue("status_update")
+    assert queue.durable is False
+
+
+@skip_unless_module("kombu")
+def test_factory_respects_amqp_durable_true():
+    from pulsar.client import amqp_exchange_factory
+    exchange = amqp_exchange_factory.get_exchange(
+        TEST_CONNECTION, "factory_durable_on", {"amqp_durable": True},
+    )
+    queue = exchange._PulsarExchange__queue("status_update")
+    assert queue.durable is True
+
+
+@skip_unless_module("kombu")
+def test_factory_respects_amqp_durable_string_true():
+    from pulsar.client import amqp_exchange_factory
+    exchange = amqp_exchange_factory.get_exchange(
+        TEST_CONNECTION, "factory_durable_on_str", {"amqp_durable": "true"},
+    )
+    queue = exchange._PulsarExchange__queue("status_update")
+    assert queue.durable is True
+
+
+def test_publish_kwds_no_retry_by_default():
+    """Without an explicit opt-in we leave kombu's defaults alone, so existing
+    deployments don't get surprise retry behavior; the persistent outbox is
+    the primary durability layer."""
+    from pulsar.client.amqp_exchange_factory import parse_amqp_publish_kwds
+    publish_kwds = parse_amqp_publish_kwds({})
+    assert "retry" not in publish_kwds
+    assert "retry_policy" not in publish_kwds
+
+
+def test_publish_kwds_retry_true_populates_default_policy():
+    """When the operator opts into retries we fill in bounded defaults so a
+    single hiccup doesn't drop a message before the outbox sees it."""
+    from pulsar.client.amqp_exchange_factory import (
+        DEFAULT_PUBLISH_RETRY_POLICY,
+        parse_amqp_publish_kwds,
+    )
+    publish_kwds = parse_amqp_publish_kwds({"amqp_publish_retry": True})
+    assert publish_kwds["retry"] is True
+    assert publish_kwds["retry_policy"] == DEFAULT_PUBLISH_RETRY_POLICY
+
+
+def test_publish_kwds_explicit_retry_policy_wins_over_defaults():
+    from pulsar.client.amqp_exchange_factory import (
+        DEFAULT_PUBLISH_RETRY_POLICY,
+        parse_amqp_publish_kwds,
+    )
+    publish_kwds = parse_amqp_publish_kwds({
+        "amqp_publish_retry": True,
+        "amqp_publish_retry_max_retries": 99,
+        "amqp_publish_retry_interval_start": 7,
+    })
+    assert publish_kwds["retry"] is True
+    assert publish_kwds["retry_policy"]["max_retries"] == 99
+    assert publish_kwds["retry_policy"]["interval_start"] == 7
+    # Non-overridden defaults are still filled in.
+    assert publish_kwds["retry_policy"]["interval_max"] == DEFAULT_PUBLISH_RETRY_POLICY["interval_max"]
+
+
 __all__ = ["test_amqp"]
