@@ -144,5 +144,9 @@ class ManagerProxy:
     def object_store(self):
         return self._proxied_manager.object_store
 
+    @property
+    def persistence_directory(self):
+        return self._proxied_manager.persistence_directory
+
     def __str__(self):
         return "ManagerProxy[manager=%s]" % str(self._proxied_manager)
