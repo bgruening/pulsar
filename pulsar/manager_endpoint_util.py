@@ -14,6 +14,7 @@ from pulsar.managers import (
     status,
 )
 from pulsar.managers.staging import realized_dynamic_file_sources
+from pulsar.managers.stateful import ACTIVE_STATUS_PREPROCESSING
 
 log = logging.getLogger(__name__)
 
@@ -72,6 +73,13 @@ def submit_job(manager, job_config):
     """
     # job_config is raw dictionary from JSON (from MQ or HTTP endpoint).
     job_id = job_config.get('job_id')
+    if job_id and _is_duplicate_setup(manager, job_id):
+        log.info(
+            "Ignoring duplicate setup message for job_id %s (launch_config already "
+            "persisted; this is most likely an MQ redelivery after Pulsar restart).",
+            job_id,
+        )
+        return
     try:
         command_line = job_config.get('command_line')
 
@@ -132,3 +140,40 @@ def setup_job(manager, job_id, tool_id, tool_version):
         tool_id=tool_id,
         tool_version=tool_version
     )
+
+
+def _is_duplicate_setup(manager, job_id: str) -> bool:
+    """Detect a redelivered setup message for a job that has already been launched.
+
+    Setup messages can be redelivered when Pulsar restarts after acking an AMQP
+    setup but before the broker recorded the ack, or any time the consumer
+    crashes mid-processing.
+
+    We only short-circuit when the job is in a state recovery can finish on
+    its own — i.e. either the job has reached a terminal status, or it is
+    still tracked by ``active_jobs`` and ``recover_active_jobs`` will resume
+    it. If the prior run crashed *between* persisting ``launch_config`` and
+    activating the job there is no recovery hook, so we let the redelivered
+    message drive a fresh ``preprocess_and_launch``.
+    """
+    try:
+        job_directory = manager.job_directory(job_id)
+    except (TypeError, ValueError, OSError):
+        # Malformed job_id from a redelivered or corrupt message body.
+        return False
+    if not job_directory.exists():
+        return False
+    if job_directory.has_metadata("final_status"):
+        return True
+    active_jobs = manager.active_jobs
+    try:
+        if job_id in set(active_jobs.active_job_ids()):
+            return True
+        if job_id in set(active_jobs.active_job_ids(active_status=ACTIVE_STATUS_PREPROCESSING)):
+            return True
+    except OSError:
+        # active_job_ids() reads filesystem state; if the persistence
+        # directory is unreadable we can't tell if it's a duplicate, so
+        # let preprocess_and_launch run again.
+        pass
+    return False
