@@ -82,6 +82,19 @@ def clear_events():
     return {"cleared": True}
 
 
+@app.post("/_recorder/inject_status")
+async def inject_status(req: Request):
+    """Test helper: feed a status payload directly into the recorder.
+
+    Used to model Galaxy-side actions that don't come over the wire from
+    Pulsar (an operator restart, an admin cancel) when validating the
+    regression-guard / reset-token semantics end-to-end.
+    """
+    payload = await req.json()
+    recorder.record(payload)
+    return {"recorded": True}
+
+
 @app.post("/_consumer/reset")
 def consumer_reset():
     """Drop the relay long-poll cursor and the cached relay JWT in-place.
