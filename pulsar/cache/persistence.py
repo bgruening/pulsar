@@ -1,4 +1,5 @@
 import shelve
+import sqlite3
 import traceback
 
 from threading import Lock
@@ -26,7 +27,6 @@ class PersistenceStore:
         db = self.shelf.dict
         if type(db).__module__ != "dbm.sqlite3":
             return
-        import sqlite3
         path_row = db._cx.execute("PRAGMA database_list").fetchone()
         path = path_row[2]
         db._cx.close()
