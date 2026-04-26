@@ -4,7 +4,10 @@ HTTP transport for communicating with pulsar-relay.
 Provides methods for posting messages, long-polling, and managing
 authentication with the relay server.
 """
+import json
 import logging
+import os
+import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
@@ -29,7 +32,14 @@ class RelayTransport:
     - Automatic authentication and retry
     """
 
-    def __init__(self, relay_url: str, username: str, password: str, timeout: int = 30):
+    def __init__(
+        self,
+        relay_url: str,
+        username: str,
+        password: str,
+        timeout: int = 30,
+        cursor_path: Optional[str] = None,
+    ):
         """Initialize the relay transport.
 
         Args:
@@ -37,12 +47,23 @@ class RelayTransport:
             username: Username for authentication
             password: Password for authentication
             timeout: Default request timeout in seconds
+            cursor_path: Optional path to a JSON file used to persist the
+                per-topic ``last_message_id`` cursor across process restarts.
+                If provided, the file is loaded at startup and rewritten
+                atomically every time the cursor advances. Without this,
+                a Pulsar (or Galaxy) restart loses its place in each topic
+                and any messages published while the consumer was down are
+                silently skipped.
         """
         self.relay_url = relay_url.rstrip('/')
         self.auth_manager = RelayAuthManager(relay_url, username, password)
         self.timeout = timeout
         self.session = requests.Session()
-        self._last_message_ids: Dict[str, str] = {}  # Track last message ID per topic
+        self._last_message_ids: Dict[str, str] = {}
+        self._cursor_path = cursor_path
+        self._cursor_lock = threading.Lock()
+        if self._cursor_path:
+            self._load_cursor()
 
     def _get_headers(self) -> Dict[str, str]:
         """Get HTTP headers including authentication token.
@@ -361,7 +382,10 @@ class RelayTransport:
             topic: Topic name
             message_id: Message ID to set as the last seen message
         """
-        self._last_message_ids[topic] = message_id
+        with self._cursor_lock:
+            self._last_message_ids[topic] = message_id
+            if self._cursor_path:
+                self._persist_cursor_locked()
 
     def clear_tracked_message_ids(self, topic: Optional[str] = None) -> None:
         """Clear tracked message IDs.
@@ -370,13 +394,61 @@ class RelayTransport:
             topic: If provided, clears only the specified topic.
                   If None, clears all tracked message IDs.
         """
-        if topic is not None:
-            if topic in self._last_message_ids:
-                del self._last_message_ids[topic]
-                log.debug("Cleared tracked message ID for topic '%s'", topic)
-        else:
-            self._last_message_ids.clear()
-            log.debug("Cleared all tracked message IDs")
+        with self._cursor_lock:
+            if topic is not None:
+                if topic in self._last_message_ids:
+                    del self._last_message_ids[topic]
+                    log.debug("Cleared tracked message ID for topic '%s'", topic)
+            else:
+                self._last_message_ids.clear()
+                log.debug("Cleared all tracked message IDs")
+            if self._cursor_path:
+                self._persist_cursor_locked()
+
+    def _load_cursor(self) -> None:
+        cursor_path = self._cursor_path
+        if cursor_path is None:
+            return
+        try:
+            with open(cursor_path) as fh:
+                data = json.load(fh)
+        except FileNotFoundError:
+            return
+        except Exception:
+            log.exception(
+                "Failed to load relay cursor from %s, starting from a clean slate",
+                cursor_path,
+            )
+            return
+        if isinstance(data, dict):
+            self._last_message_ids = {str(k): str(v) for k, v in data.items() if v}
+            log.info(
+                "Resumed relay cursors from %s with %d tracked topic(s)",
+                cursor_path, len(self._last_message_ids),
+            )
+
+    def _persist_cursor_locked(self) -> None:
+        path = self._cursor_path
+        if path is None:
+            return
+        directory = os.path.dirname(path)
+        if directory:
+            try:
+                os.makedirs(directory, exist_ok=True)
+            except Exception:
+                log.exception("Failed to create relay cursor directory %s", directory)
+                return
+        tmp_path = path + ".tmp"
+        try:
+            with open(tmp_path, "w") as fh:
+                json.dump(self._last_message_ids, fh)
+            os.replace(tmp_path, path)
+        except Exception:
+            log.exception("Failed to persist relay cursor to %s", path)
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
     def close(self):
         """Close the transport and cleanup resources."""
