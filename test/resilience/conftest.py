@@ -14,7 +14,6 @@ collects it only to skip it.
 import os
 import shutil
 import subprocess
-import time
 
 import pytest
 import requests
@@ -68,20 +67,26 @@ def _stack_reachable():
 
 @pytest.fixture(scope="session")
 def compose_up(request):
+    """Require the docker-compose stack to already be up.
+
+    We deliberately don't auto-launch the stack here: the unit-test tox env
+    runs in environments (CI, contributor laptops) that have docker
+    available but no resilience stack running, and a 60+ second compose-up
+    on every unit run would be wrong. The user is expected to bring the
+    stack up explicitly before exercising the resilience suite, e.g.::
+
+        docker compose -f test/resilience/docker-compose.yml up -d --build
+        pytest test/resilience -v
+    """
     if request.config.getoption("--no-docker") or not _docker_available():
         pytest.skip("docker not available; skipping resilience suite")
 
     if not _stack_reachable():
-        subprocess.run(
-            ["docker", "compose", "-f", f"{PROJECT_DIR}/docker-compose.yml", "up", "-d",
-             "rabbitmq", "valkey", "relay", "toxiproxy", "mock-galaxy"],
-            check=True,
+        pytest.skip(
+            "resilience docker-compose stack is not running; "
+            "start it with `docker compose -f test/resilience/docker-compose.yml up -d --build` "
+            "before running test/resilience scenarios."
         )
-        deadline = time.time() + 60
-        while time.time() < deadline and not _stack_reachable():
-            time.sleep(1.0)
-        if not _stack_reachable():
-            pytest.fail("toxiproxy admin never came up")
 
     yield
 
