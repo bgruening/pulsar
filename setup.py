@@ -1,18 +1,11 @@
 import ast
 import os
 import re
+import sys
 
-try:
-    from distutils.util import get_platform
-    is_windows = get_platform().startswith("win")
-except ImportError:
-    # Don't break install if distuils is incompatible in some way
-    # probably overly defensive.
-    is_windows = False
-try:
-    from setuptools import setup
-except ImportError:
-    from distutils.core import setup
+from setuptools import setup
+
+is_windows = sys.platform.startswith("win")
 
 # Set environment variable to 1 to build as library for Galaxy instead
 # of as stand-alone app.
@@ -121,11 +114,13 @@ setup(
         'Operating System :: Microsoft :: Windows',
         'Natural Language :: English',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
         'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
+        'Programming Language :: Python :: 3.13',
+        'Programming Language :: Python :: 3.14',
     ],
 )

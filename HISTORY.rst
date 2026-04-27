@@ -8,6 +8,13 @@ History
 ---------------------
 0.15.15.dev0
 ---------------------
+* Add support for Python 3.12, 3.13, and 3.14. Make the persistence shelf
+  thread-safe under Python 3.13's new ``dbm.sqlite3`` default backend
+  (access is already serialised by a lock). Drop ``distutils`` usage in
+  ``setup.py``; replace deprecated ``datetime.utcnow()``,
+  ``ConfigParser.readfp()``, ``logging.warn()``, positional ``re.sub``
+  ``count`` argument, ``galaxy.tool_util.deps.commands`` import, and
+  Pydantic ``.schema()``. Pin ``webob>=1.8.8`` to drop its ``cgi`` import.
 
 ---------------------
 0.15.14 (2025-01-20)
