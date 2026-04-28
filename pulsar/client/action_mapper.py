@@ -141,6 +141,12 @@ class FileActionMapper:
     True
     >>> action.staging_needed
     True
+    >>> # Always at least copy input metadata files.
+    >>> action = mapper.action({'path': '/opt/galaxy/database/working_directory/metadata'}, 'metadata')
+    >>> action.action_type == u'copy'
+    True
+    >>> action.staging_needed
+    True
     >>> # Test glob mapper (matching test)
     >>> mapper.action({'path': '/cool/bamfiles/projectABC/study1/patient3.bam'}, 'input').action_type == u'copy'
     True
@@ -250,7 +256,7 @@ class FileActionMapper:
         action_type = self.default_action if type in ACTION_DEFAULT_PATH_TYPES else "none"
         if mapper:
             action_type = mapper.action_type
-        if type in ["workdir", "jobdir", "output_workdir", "output_metadata", "output_jobdir"] and action_type == "none":
+        if type in ["workdir", "jobdir", "metadata", "output_workdir", "output_metadata", "output_jobdir"] and action_type == "none":
             # We are changing the working_directory/job_directory relative to what
             # Galaxy would use, these need to be copied over.
             action_type = "copy"
