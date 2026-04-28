@@ -19,6 +19,7 @@ coverage
 # resolvable for lint/mypy even when the suite itself is skipped without docker.
 fastapi; python_version >= '3.8'
 uvicorn; python_version >= '3.8'
+a2wsgi; python_version >= '3.8'
 
 # For dev
 sphinx

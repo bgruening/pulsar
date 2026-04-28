@@ -2,7 +2,12 @@
 
 Exposes the surface Pulsar actually exercises:
 
-- ``GET /files/{path}`` and ``POST /files/{path}`` for input/output staging.
+- ``/api/jobs/_resilience/files`` (GET/POST/PUT/HEAD) for input/output
+  staging. The wire shape (``?path=...`` query param, multipart POST, raw
+  PUT) is provided by the upstream `simple-job-files`_ package, which
+  itself emulates Galaxy's job-files API. We mount it as a WSGI sub-app so
+  the resilience suite exercises the same wire format real Galaxy serves
+  rather than a bespoke ``/files/{path}`` shape.
 - An AMQP consumer of the ``status_update`` queue and a relay long-poll
   consumer of the ``job_status_update`` topic. Both push received messages
   into a shared :class:`StatusRecorder`.
@@ -15,6 +20,8 @@ Exposes the surface Pulsar actually exercises:
 
 The app does NOT execute jobs or care about Pulsar's internals beyond the
 wire format. It only records what it sees.
+
+.. _simple-job-files: https://github.com/jmchilton/simple-job-files
 """
 import json
 import logging
@@ -26,8 +33,11 @@ from pathlib import Path
 import kombu
 import requests
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from a2wsgi import WSGIMiddleware
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from simplejobfiles.app import JobFilesApp
+from webob.exc import HTTPException as WebObHTTPException
 
 from recorder import StatusRecorder  # type: ignore
 
@@ -47,26 +57,36 @@ app = FastAPI()
 
 
 # ----- file-staging endpoints --------------------------------------------------
+# Mounted simple-job-files WSGI app. The mount prefix is stripped before the
+# WSGI sub-app sees the request, so the URL path is irrelevant to JobFilesApp
+# (which dispatches purely on HTTP method and reads ``?path=`` from the query
+# string). The prefix exists to mimic real Galaxy's ``/api/jobs/{id}/files``
+# shape and to keep this surface namespaced away from the recorder / publish
+# helpers below.
+#
+# ``allow_multiple_downloads=True`` is essential: resilience scenarios retry
+# staging on transient failures, so the same input may be GET'd more than
+# once for a single job. simple-job-files defaults to refusing duplicate
+# downloads (to match a stricter Galaxy mode); we opt out.
+#
+# simple-job-files raises ``webob.exc.HTTPNotFound`` for missing files
+# instead of returning it as a response; a2wsgi turns the bare exception
+# into a 500. The c3 fail-fast scenario specifically asserts that a 404
+# from Galaxy short-circuits Pulsar's retry classifier, so we wrap the
+# WSGI app to turn raised WebOb HTTPExceptions back into proper responses.
+class _WebObExceptionShim:
+    def __init__(self, wsgi_app):
+        self._app = wsgi_app
 
-@app.get("/files/{path:path}")
-def get_file(path: str):
-    target = (FILES_ROOT / path).resolve()
-    if not str(target).startswith(str(FILES_ROOT.resolve())):
-        raise HTTPException(status_code=400, detail="path traversal")
-    if not target.exists():
-        raise HTTPException(status_code=404, detail="not found")
-    return FileResponse(str(target))
+    def __call__(self, environ, start_response):
+        try:
+            return self._app(environ, start_response)
+        except WebObHTTPException as e:
+            return e(environ, start_response)
 
 
-@app.post("/files/{path:path}")
-async def post_file(path: str, request: Request):
-    target = (FILES_ROOT / path).resolve()
-    if not str(target).startswith(str(FILES_ROOT.resolve())):
-        raise HTTPException(status_code=400, detail="path traversal")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    body = await request.body()
-    target.write_bytes(body)
-    return {"path": str(target.relative_to(FILES_ROOT)), "size": len(body)}
+_jfa = JobFilesApp(root_directory=str(FILES_ROOT), allow_multiple_downloads=True)
+app.mount("/api/jobs/_resilience/files", WSGIMiddleware(_WebObExceptionShim(_jfa)))  # type: ignore[arg-type]
 
 
 # ----- recorder/control endpoints ---------------------------------------------

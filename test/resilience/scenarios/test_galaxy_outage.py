@@ -5,6 +5,7 @@ These exercise the staging path (input download, output upload). The
 should retry transient HTTP failures and fail-fast on permanent ones.
 The end-to-end check is that the terminal status reflects reality.
 """
+import io
 import time
 
 import pytest
@@ -14,19 +15,34 @@ from harness.assertions import (
     assert_exactly_once_terminal,
     await_terminal,
 )
-from harness.job_factory import make_setup_message
+from harness.job_factory import (
+    FILES_API,
+    GALAXY_FILES_ROOT,
+    make_setup_message,
+)
 
 GALAXY_BASE = "http://localhost:8088"
+
+
+def _put_input(galaxy_filename: str, body: bytes) -> None:
+    """Pre-populate a file inside the mock's GALAXY_FILES_ROOT volume via
+    the simple-job-files multipart POST surface.
+    """
+    requests.post(
+        f"{GALAXY_BASE}{FILES_API}",
+        data={"path": f"{GALAXY_FILES_ROOT}/{galaxy_filename}"},
+        files={"file": ("upload", io.BytesIO(body))},
+        timeout=10,
+    ).raise_for_status()
 
 
 @pytest.mark.resilience
 def test_c1_input_503_then_recovers(pulsar, galaxy_proxy):
     """Galaxy HTTP returns 5xx for a beat; staging retries and succeeds."""
-    # Stage a real file in mock-galaxy first.
-    requests.post(f"{GALAXY_BASE}/files/c1-input.txt", data=b"hello").raise_for_status()
+    _put_input("c1-input.txt", b"hello")
     body = make_setup_message(
         command_line="cat /pulsar/staging/inputs/c1-input.txt",
-        input_files=[("c1-input.txt", "/files/c1-input.txt")],
+        input_files=[("c1-input.txt", "c1-input.txt")],
     )
     galaxy_proxy.add_latency(1000)  # heavy latency degrades but doesn't 4xx
     requests.post(f"{GALAXY_BASE}/_publish_setup", json=body, timeout=10).raise_for_status()
@@ -42,7 +58,7 @@ def test_c3_input_404_fails_fast(pulsar):
     terminal status, not endless retries."""
     body = make_setup_message(
         command_line="echo c3",
-        input_files=[("missing.txt", "/files/never-existed.txt")],
+        input_files=[("missing.txt", "never-existed.txt")],
     )
     requests.post(f"{GALAXY_BASE}/_publish_setup", json=body, timeout=5).raise_for_status()
     await_terminal(body["job_id"], timeout=120, expected="failed")
