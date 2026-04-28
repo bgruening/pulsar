@@ -4,6 +4,7 @@ The harness shells out to ``docker compose`` rather than using the Docker
 Python SDK to keep the dependency surface small and to make the commands easy
 to reproduce by hand when debugging a flaky scenario.
 """
+import os
 import subprocess
 import time
 
@@ -17,9 +18,22 @@ RABBITMQ_MGMT = "http://localhost:15672/api"
 RABBITMQ_AUTH = ("guest", "guest")
 
 
+def _compose_env(**overrides):
+    """Build a subprocess env that lets ``docker compose`` find its plugin.
+
+    Inherits the parent env (HOME, DOCKER_CONFIG, etc.) — Docker Desktop
+    discovers the compose plugin via ``~/.docker/cli-plugins/``, so a
+    stripped env makes ``docker compose`` fall through to plain ``docker``
+    and fail on ``-f``.
+    """
+    env = dict(os.environ)
+    env.update(overrides)
+    return env
+
+
 def _docker_compose(*args, project_dir):
     cmd = ["docker", "compose", "-f", f"{project_dir}/docker-compose.yml", *args]
-    return subprocess.run(cmd, capture_output=True, text=True, check=False)
+    return subprocess.run(cmd, capture_output=True, text=True, check=False, env=_compose_env())
 
 
 class PulsarControl:
@@ -38,7 +52,7 @@ class PulsarControl:
                "up", "-d", "--force-recreate", self.service]
         subprocess.run(
             cmd,
-            env={"PULSAR_MODE": self.mode, "PATH": _path_env()},
+            env=_compose_env(PULSAR_MODE=self.mode),
             check=True,
         )
         if wait_ready:
@@ -50,13 +64,13 @@ class PulsarControl:
         subprocess.run(
             ["docker", "compose", "-f", f"{self.project_dir}/docker-compose.yml",
              "rm", "-fsv", self.service],
-            env={"PATH": _path_env()},
+            env=_compose_env(),
             check=False,
         )
         for vol in ("resilience_pulsar-staging", "resilience_pulsar-persisted"):
             subprocess.run(
                 ["docker", "volume", "rm", "-f", vol],
-                env={"PATH": _path_env()},
+                env=_compose_env(),
                 check=False,
             )
         # Wipe RabbitMQ control queues so a redelivered setup from a prior
@@ -90,7 +104,7 @@ class PulsarControl:
         subprocess.run(
             ["docker", "compose", "-f", f"{self.project_dir}/docker-compose.yml",
              "exec", "-T", "relay", "valkey-cli", "EVAL", lua, "0"],
-            env={"PATH": _path_env()},
+            env=_compose_env(),
             check=False, capture_output=True,
         )
         # Drop mock-galaxy's relay long-poll cursor, JWT cache and recorder
@@ -162,11 +176,6 @@ class PulsarControl:
         raise TimeoutError(
             f"Pulsar did not bind {self.mode} consumers within {timeout}s"
         )
-
-
-def _path_env():
-    import os
-    return os.environ.get("PATH", "")
 
 
 def _amqp_setup_has_consumer():
