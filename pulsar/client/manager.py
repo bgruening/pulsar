@@ -6,6 +6,7 @@ specific actions.
 """
 
 import functools
+import os
 import threading
 from logging import getLogger
 from os import getenv
@@ -52,6 +53,45 @@ if TYPE_CHECKING:
 log = getLogger(__name__)
 
 DEFAULT_TRANSFER_THREADS = 2
+
+
+def _per_handler_cursor_path(
+    base_path: Optional[str],
+    handler_id: Optional[str] = None,
+) -> Optional[str]:
+    """Insert a stable per-handler suffix before the file extension.
+
+    Galaxy job handlers run as separate processes, each polling the relay
+    independently with its own cursor. Sharing one file would let
+    concurrent ``os.replace`` writes drop another handler's progress, but
+    the suffix must also be **stable across restarts** — otherwise the
+    cursor is read once on first start and then orphaned, defeating the
+    point of persisting it.
+
+    Resolution order for the suffix:
+
+    1. ``handler_id`` argument (typically ``app.config.server_name`` from
+       the caller — stable across restarts).
+    2. ``GALAXY_SERVER_NAME`` env var (Galaxy's standard handler tag).
+    3. ``os.getpid()`` as a last resort, with a warning: PID is unique
+       per process but changes on every restart, so the persisted cursor
+       will not be loaded by the next run.
+    """
+    if not base_path:
+        return base_path
+    suffix = handler_id or os.environ.get("GALAXY_SERVER_NAME")
+    if not suffix:
+        suffix = f"pid{os.getpid()}"
+        log.warning(
+            "relay_cursor_path is set but no stable handler id was supplied "
+            "(neither relay_handler_id kwarg nor GALAXY_SERVER_NAME env). "
+            "Falling back to %s; this cursor will not be picked up after a "
+            "process restart, so status updates published while the handler "
+            "was down may be skipped.",
+            suffix,
+        )
+    root, ext = os.path.splitext(base_path)
+    return f"{root}-{suffix}{ext}"
 
 
 class ClientManagerInterface(Protocol):
@@ -263,14 +303,34 @@ class RelayClientManager(BaseRemoteConfiguredJobClientManager):
     """
     status_cache: Dict[str, Any]
 
-    def __init__(self, relay_url: str, relay_username: str, relay_password: str, relay_topic_prefix: str = '', **kwds: Dict[str, Any]):
+    def __init__(
+        self,
+        relay_url: str,
+        relay_username: str,
+        relay_password: str,
+        relay_topic_prefix: str = '',
+        relay_cursor_path: Optional[str] = None,
+        relay_handler_id: Optional[str] = None,
+        **kwds: Dict[str, Any],
+    ):
         super().__init__(**kwds)
 
         if not relay_url:
             raise Exception("relay_url is required for RelayClientManager")
 
-        # Initialize relay transport
-        self.relay_transport = RelayTransport(relay_url, relay_username, relay_password)
+        # Initialize relay transport. ``relay_cursor_path`` persists the long-poll
+        # cursor across Galaxy restarts so we don't silently skip messages
+        # published by Pulsar while Galaxy was down. Galaxy job handlers run as
+        # separate processes — each one polls the relay independently and so
+        # tracks its own cursor — so we expand the operator-supplied path with
+        # a stable per-handler suffix (``relay_handler_id`` or
+        # ``GALAXY_SERVER_NAME``) to give every handler its own file. A shared
+        # cursor would suffer last-writer-wins corruption when handlers persist
+        # concurrently and could silently rewind another handler's progress.
+        self.relay_transport = RelayTransport(
+            relay_url, relay_username, relay_password,
+            cursor_path=_per_handler_cursor_path(relay_cursor_path, relay_handler_id),
+        )
         self.relay_topic_prefix = relay_topic_prefix
         self.status_cache = {}
         self.callback_lock = threading.Lock()

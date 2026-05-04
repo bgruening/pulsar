@@ -41,9 +41,15 @@ class QueueState:
     def __init__(self):
         self.active = True
         self.threads = []
+        self.outboxes = []
 
     def deactivate(self):
         self.active = False
+        for outbox in self.outboxes:
+            try:
+                outbox.stop(timeout=2.0)
+            except OSError:
+                log.exception("Failed to stop status update outbox")
 
     def __nonzero__(self):
         return self.active

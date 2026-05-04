@@ -1,0 +1,105 @@
+# Resilience test stack for Pulsar.
+#
+# Brings up real services and a mock Galaxy so the test suite can exercise:
+#   - Pulsar SIGKILL / restart mid-job
+#   - RabbitMQ outage and partition (via toxiproxy)
+#   - pulsar-relay outage and partition (via toxiproxy)
+#   - Galaxy HTTP file-server failures (via toxiproxy)
+#
+# Networking:
+#   - rabbitmq      <-> toxiproxy:5672  (Pulsar connects through toxiproxy)
+#   - relay         <-> toxiproxy:9000  (Pulsar/Galaxy connect through toxiproxy)
+#   - mock-galaxy   <-> toxiproxy:8088  (Pulsar pulls/pushes files through toxiproxy)
+#
+# Toxiproxy admin API: http://toxiproxy:8474 (the harness drives faults here).
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "15672:15672"   # management API for harness readiness checks
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks: [pulsar-net]
+
+  valkey:
+    image: valkey/valkey:7
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks: [pulsar-net]
+
+  relay:
+    image: ghcr.io/mvdbeek/pulsar-relay:latest
+    volumes:
+      - ./config/relay-config.yaml:/etc/pulsar-relay/config.yaml:ro
+    networks: [pulsar-net]
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    command: ["-host=0.0.0.0", "-config=/config/toxiproxy.json"]
+    volumes:
+      - ./config/toxiproxy.json:/config/toxiproxy.json:ro
+    ports:
+      - "8474:8474"   # admin API
+      - "5672:5672"   # rabbitmq
+      - "9000:9000"   # relay
+      - "8088:8088"   # mock galaxy http
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      relay:
+        condition: service_started
+    networks: [pulsar-net]
+
+  mock-galaxy:
+    build:
+      context: .
+      dockerfile: mock_galaxy/Dockerfile
+    environment:
+      - MOCK_GALAXY_BIND=0.0.0.0:8088
+      - MOCK_GALAXY_AMQP_URL=amqp://guest:guest@rabbitmq:5672//
+      - MOCK_GALAXY_RELAY_URL=http://relay:8080
+      - MOCK_GALAXY_RELAY_USERNAME=admin
+      - MOCK_GALAXY_RELAY_PASSWORD=admin1234
+      - MOCK_GALAXY_MANAGER=_default_
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      relay:
+        condition: service_started
+    volumes:
+      - galaxy-files:/galaxy/files
+    networks: [pulsar-net]
+
+  pulsar:
+    build:
+      context: ../..
+      dockerfile: test/resilience/Dockerfile.pulsar
+    environment:
+      - PULSAR_CONFIG_DIR=/etc/pulsar
+      - PULSAR_MODE=${PULSAR_MODE:-amqp}    # amqp | amqp_ack | relay
+    volumes:
+      - ./config:/etc/pulsar:ro
+      - pulsar-staging:/pulsar/staging
+      - pulsar-persisted:/pulsar/persisted
+    depends_on:
+      toxiproxy:
+        condition: service_started
+      mock-galaxy:
+        condition: service_started
+    networks: [pulsar-net]
+
+networks:
+  pulsar-net:
+    driver: bridge
+
+volumes:
+  galaxy-files:
+  pulsar-staging:
+  pulsar-persisted:

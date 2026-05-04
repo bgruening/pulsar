@@ -6,14 +6,29 @@ requests, kill) and publish status updates.
 """
 import functools
 import logging
+import os
 import threading
 import time
+from typing import Optional
+
+import requests
 
 from pulsar import manager_endpoint_util
-from pulsar.client.transport.relay import RelayTransport
+from pulsar.client.transport.relay import (
+    RelayTransport,
+    RelayTransportError,
+)
+from .outbox import build_status_outbox
 from .relay_state import RelayState
 
 log = logging.getLogger(__name__)
+
+
+def _server_cursor_path(manager) -> Optional[str]:
+    persistence_directory = manager.persistence_directory
+    if not persistence_directory:
+        return None
+    return os.path.join(persistence_directory, "%s-relay-cursor.json" % manager.name)
 
 
 def bind_manager_to_relay(manager, relay_state: RelayState, relay_url, conf):
@@ -37,8 +52,12 @@ def bind_manager_to_relay(manager, relay_state: RelayState, relay_url, conf):
     # Extract optional relay topic prefix
     relay_topic_prefix = conf.get('relay_topic_prefix', '')
 
-    # Create relay transport
-    relay_transport = RelayTransport(relay_url, username, password)
+    # Create relay transport with a per-manager persistent cursor so a Pulsar
+    # restart resumes the long-poll exactly where it left off, rather than
+    # silently skipping any setup/kill messages published while it was down.
+    relay_transport = RelayTransport(
+        relay_url, username, password, cursor_path=_server_cursor_path(manager),
+    )
 
     # Define message handlers
     process_setup_messages = functools.partial(__process_setup_message, manager)
@@ -73,16 +92,33 @@ def bind_manager_to_relay(manager, relay_state: RelayState, relay_url, conf):
     if conf.get("message_queue_publish", True):
         log.info("Binding status change callback for manager '%s'", manager_name)
 
+        outbox = build_status_outbox(
+            manager,
+            conf,
+            publish_fn=lambda payload: relay_transport.post_message(status_update_topic, payload),
+            suffix="relay-status-outbox",
+        )
+        if outbox is not None:
+            relay_state.outboxes.append(outbox)
+
         def bind_on_status_change(new_status, job_id):
             job_id = job_id or 'unknown'
+            log.debug(
+                "Publishing Pulsar state change with status %s for job_id %s via relay",
+                new_status, job_id,
+            )
+            payload = manager_endpoint_util.full_status(manager, new_status, job_id)
+            if outbox is not None:
+                outbox.enqueue(payload)
+                return
             try:
-                message = "Publishing Pulsar state change with status %s for job_id %s via relay"
-                log.debug(message, new_status, job_id)
-                payload = manager_endpoint_util.full_status(manager, new_status, job_id)
                 relay_transport.post_message(status_update_topic, payload)
-            except Exception:
-                log.exception("Failure to publish Pulsar state change for job_id %s via relay." % job_id)
-                raise
+            except (RelayTransportError, requests.RequestException):
+                log.exception(
+                    "Failure to publish Pulsar state change for job_id %s via "
+                    "relay (no outbox configured; status update may be lost).",
+                    job_id,
+                )
 
         manager.set_state_change_callback(bind_on_status_change)
 

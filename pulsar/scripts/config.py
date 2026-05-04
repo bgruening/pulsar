@@ -11,7 +11,7 @@ from pulsar.main import (
 )
 
 try:
-    import pip
+    import pip  # type: ignore[import-not-found,unused-ignore]
 except ImportError:
     pip = None  # type: ignore
 
