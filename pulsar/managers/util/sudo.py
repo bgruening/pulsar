@@ -22,5 +22,5 @@ def sudo_popen(*args, **kwargs):
         full_command.extend([SUDO_USER_ARG, user])
     full_command.extend(args)
     log.info(f"About to execute the following sudo command - [{' '.join(full_command)}]")
-    p = Popen(full_command, shell=False, stdout=PIPE, stderr=PIPE)
+    p = Popen(full_command, shell=False, stdout=PIPE, stderr=PIPE, text=True)
     return p
