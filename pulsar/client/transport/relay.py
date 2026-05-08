@@ -35,18 +35,21 @@ class RelayTransport:
     def __init__(
         self,
         relay_url: str,
-        username: str,
-        password: str,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
         timeout: int = 30,
         cursor_path: Optional[str] = None,
+        credentials_file: Optional[str] = None,
+        auth_manager: Optional[RelayAuthManager] = None,
     ):
         """Initialize the relay transport.
 
         Args:
-            relay_url: Base URL of the pulsar-relay server
-            username: Username for authentication
-            password: Password for authentication
-            timeout: Default request timeout in seconds
+            relay_url: Base URL of the pulsar-relay server.
+            username: Username for legacy password auth (optional if
+                ``credentials_file`` or ``auth_manager`` is provided).
+            password: Password for legacy password auth.
+            timeout: Default request timeout in seconds.
             cursor_path: Optional path to a JSON file used to persist the
                 per-topic ``last_message_id`` cursor across process restarts.
                 If provided, the file is loaded at startup and rewritten
@@ -54,9 +57,23 @@ class RelayTransport:
                 a Pulsar (or Galaxy) restart loses its place in each topic
                 and any messages published while the consumer was down are
                 silently skipped.
+            credentials_file: Path to a ``relay_credentials.json`` written
+                by ``pulsar-config --login``. When present, the transport
+                uses the rotating-refresh-token flow and ignores
+                ``username``/``password``.
+            auth_manager: Pre-built ``RelayAuthManager`` instance, useful
+                for tests and advanced configurations.
         """
         self.relay_url = relay_url.rstrip('/')
-        self.auth_manager = RelayAuthManager(relay_url, username, password)
+        if auth_manager is not None:
+            self.auth_manager = auth_manager
+        else:
+            self.auth_manager = RelayAuthManager(
+                relay_url,
+                username,
+                password,
+                credentials_file=credentials_file,
+            )
         self.timeout = timeout
         self.session = requests.Session()
         self._last_message_ids: Dict[str, str] = {}

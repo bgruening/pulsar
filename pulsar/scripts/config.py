@@ -40,6 +40,12 @@ HELP_LIBDRMAA = ("Configure Pulsar to submit jobs to a cluster via DRMAA by "
                  "supplying the path to a libdrmaa .so file using this argument.")
 HELP_INSTALL = ("Install optional dependencies required by specified configuration "
                 "(e.g. drmaa, supervisor, uwsgi, etc...).")
+HELP_LOGIN = ("Bootstrap pulsar-relay credentials via the device-authorization "
+              "flow. Prints a URL + user code, waits for browser sign-in, then "
+              "writes a refresh-token credentials file to the config directory.")
+HELP_RELAY_URL = ("Base URL of the pulsar-relay server. Required with --login; "
+                  "also written into app.yml when --mq is set.")
+
 HELP_HOST = ("Host to bind Pulsar to - defaults to localhost. Specify 0.0.0.0 "
              "to listen on all interfaces.")
 HELP_TOKEN = ("Private token used to authorize clients. If Pulsar is not protected "
@@ -152,6 +158,14 @@ def main(argv=None):
                             action="store_true",
                             default=False,
                             help=HELP_MQ)
+    arg_parser.add_argument("--login",
+                            action="store_true",
+                            default=False,
+                            help=HELP_LOGIN)
+    arg_parser.add_argument("--relay-url",
+                            dest="relay_url",
+                            default=None,
+                            help=HELP_RELAY_URL)
     arg_parser.add_argument("--no_logging",
                             dest="logging",
                             action="store_false",
@@ -193,6 +207,13 @@ def main(argv=None):
     directory = args.directory
     relative_directory = directory
     directory = os.path.abspath(directory)
+
+    if args.login:
+        if not args.relay_url:
+            arg_parser.error("--login requires --relay-url")
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        return _run_relay_login(args, directory)
 
     mode = _determine_mode(args)
     if mode == "uwsgi":
@@ -272,6 +293,51 @@ def _determine_mode(args):
     else:
         mode = "gunicorn"
     return mode
+
+
+RELAY_CREDENTIALS_FILENAME = "relay_credentials.json"
+
+
+def _run_relay_login(args, directory):
+    """Bootstrap a refresh-token credentials file via the device flow.
+
+    Imported lazily so that ``pulsar-config`` without ``--login`` does not
+    pay the import cost (and works even if ``requests`` is unavailable, which
+    matters for some bootstrap scripts).
+    """
+    from pulsar.client.relay_credentials import CredentialsFile
+    from pulsar.client.relay_device_flow import (
+        DeviceFlowError,
+        RelayDeviceFlowAuthenticator,
+    )
+
+    credentials_path = os.path.join(directory, RELAY_CREDENTIALS_FILENAME)
+    cred_file = CredentialsFile(credentials_path)
+
+    print(
+        "Beginning pulsar-relay device-flow login against {url}.".format(url=args.relay_url)
+    )
+    print(
+        "If your terminal is on a different machine than your browser, "
+        "open the URL printed below in any browser and enter the user code shown."
+    )
+
+    flow = RelayDeviceFlowAuthenticator(
+        relay_url=args.relay_url,
+        credentials_file=cred_file,
+        client_hint="pulsar-config on {host}".format(host=os.uname().nodename),
+    )
+    try:
+        flow.run()
+    except DeviceFlowError as exc:
+        print("Login failed: {}".format(exc), file=sys.stderr)
+        return 1
+    print(" - relay credentials written to {path}".format(path=credentials_path))
+    print(
+        "Set ``message_queue_credentials_file: {path}`` (and ``message_queue_url: {url}``) "
+        "in app.yml.".format(path=credentials_path, url=args.relay_url)
+    )
+    return 0
 
 
 def _handle_server_ini(args, directory):

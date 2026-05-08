@@ -306,11 +306,12 @@ class RelayClientManager(BaseRemoteConfiguredJobClientManager):
     def __init__(
         self,
         relay_url: str,
-        relay_username: str,
-        relay_password: str,
+        relay_username: Optional[str] = None,
+        relay_password: Optional[str] = None,
         relay_topic_prefix: str = '',
         relay_cursor_path: Optional[str] = None,
         relay_handler_id: Optional[str] = None,
+        relay_credentials_file: Optional[str] = None,
         **kwds: Dict[str, Any],
     ):
         super().__init__(**kwds)
@@ -328,8 +329,11 @@ class RelayClientManager(BaseRemoteConfiguredJobClientManager):
         # cursor would suffer last-writer-wins corruption when handlers persist
         # concurrently and could silently rewind another handler's progress.
         self.relay_transport = RelayTransport(
-            relay_url, relay_username, relay_password,
+            relay_url,
+            username=relay_username,
+            password=relay_password,
             cursor_path=_per_handler_cursor_path(relay_cursor_path, relay_handler_id),
+            credentials_file=relay_credentials_file,
         )
         self.relay_topic_prefix = relay_topic_prefix
         self.status_cache = {}
