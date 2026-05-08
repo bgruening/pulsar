@@ -208,9 +208,12 @@ def main(argv=None):
     relative_directory = directory
     directory = os.path.abspath(directory)
 
-    if args.login:
-        if not args.relay_url:
-            arg_parser.error("--login requires --relay-url")
+    if args.login and not args.relay_url:
+        arg_parser.error("--login requires --relay-url")
+
+    # Standalone --login (no --mq): just do the device flow against an
+    # already-existing config directory, no scaffolding.
+    if args.login and not args.mq:
         if not os.path.exists(directory):
             os.makedirs(directory)
         return _run_relay_login(args, directory)
@@ -234,6 +237,11 @@ def main(argv=None):
         _handle_supervisor(args, mode, directory, dependencies)
     _handle_install(args, dependencies)
     _print_config_summary(args, mode, relative_directory)
+
+    # If the operator asked to also sign in, run the device flow now so the
+    # credentials file lands next to the freshly-scaffolded app.yml.
+    if args.login:
+        return _run_relay_login(args, directory)
 
 
 def _print_config_summary(args, mode, relative_directory):
@@ -333,10 +341,15 @@ def _run_relay_login(args, directory):
         print("Login failed: {}".format(exc), file=sys.stderr)
         return 1
     print(" - relay credentials written to {path}".format(path=credentials_path))
-    print(
-        "Set ``message_queue_credentials_file: {path}`` (and ``message_queue_url: {url}``) "
-        "in app.yml.".format(path=credentials_path, url=args.relay_url)
-    )
+    if not args.mq:
+        # The app.yml scaffold was skipped (operator ran --login alone).
+        # Print the keys they need to add by hand.
+        print(
+            "Set ``message_queue_credentials_file: {path}`` (and "
+            "``message_queue_url: {url}``) in app.yml.".format(
+                path=credentials_path, url=args.relay_url
+            )
+        )
     return 0
 
 
@@ -370,7 +383,19 @@ def _handle_app_yaml(args, directory):
     if args.private_token:
         contents += 'private_token: %s\n' % args.private_token
     if args.mq:
-        contents += 'message_queue_url: "amqp://guest:guest@localhost:5672//"\n'
+        if args.relay_url:
+            # pulsar-relay (HTTP) mode. Use a refresh-token credentials file
+            # bootstrapped by `pulsar-config --login`, falling back to legacy
+            # username/password placeholders the operator can fill in by hand.
+            contents += 'message_queue_url: "{}"\n'.format(args.relay_url)
+            contents += 'message_queue_credentials_file: "{}"\n'.format(
+                os.path.join(directory, RELAY_CREDENTIALS_FILENAME)
+            )
+            contents += '## Or, for legacy password-based relay auth:\n'
+            contents += '#message_queue_username: admin\n'
+            contents += '#message_queue_password: changeme\n'
+        else:
+            contents += 'message_queue_url: "amqp://guest:guest@localhost:5672//"\n'
     auto_conda = 'true' if args.auto_conda else 'false'
     contents += 'conda_auto_init: {}\n'.format(auto_conda)
     contents += 'conda_auto_install: {}\n'.format(auto_conda)
