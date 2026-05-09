@@ -40,11 +40,17 @@ HELP_LIBDRMAA = ("Configure Pulsar to submit jobs to a cluster via DRMAA by "
                  "supplying the path to a libdrmaa .so file using this argument.")
 HELP_INSTALL = ("Install optional dependencies required by specified configuration "
                 "(e.g. drmaa, supervisor, uwsgi, etc...).")
-HELP_LOGIN = ("Bootstrap pulsar-relay credentials via the device-authorization "
-              "flow. Prints a URL + user code, waits for browser sign-in, then "
-              "writes a refresh-token credentials file to the config directory.")
-HELP_RELAY_URL = ("Base URL of the pulsar-relay server. Required with --login; "
-                  "also written into app.yml when --mq is set.")
+HELP_LOGIN = ("Scaffold a relay-flavoured config directory (app.yml, "
+              "local_env.sh, ...) and bootstrap pulsar-relay credentials via "
+              "the device-authorization flow. Implies --mq. Refuses to "
+              "overwrite an existing app.yml without --force; if you already "
+              "have a config and only want the credentials file, use "
+              "--login-only.")
+HELP_LOGIN_ONLY = ("Bootstrap pulsar-relay credentials via the device-"
+                   "authorization flow only — do not write or modify "
+                   "app.yml. Use this when you already have a relay config.")
+HELP_RELAY_URL = ("Base URL of the pulsar-relay server. Required with --login "
+                  "or --login-only; also written into app.yml when --mq is set.")
 
 HELP_HOST = ("Host to bind Pulsar to - defaults to localhost. Specify 0.0.0.0 "
              "to listen on all interfaces.")
@@ -162,6 +168,11 @@ def main(argv=None):
                             action="store_true",
                             default=False,
                             help=HELP_LOGIN)
+    arg_parser.add_argument("--login-only",
+                            dest="login_only",
+                            action="store_true",
+                            default=False,
+                            help=HELP_LOGIN_ONLY)
     arg_parser.add_argument("--relay-url",
                             dest="relay_url",
                             default=None,
@@ -208,12 +219,28 @@ def main(argv=None):
     relative_directory = directory
     directory = os.path.abspath(directory)
 
-    if args.login and not args.relay_url:
-        arg_parser.error("--login requires --relay-url")
+    if args.login and args.login_only:
+        arg_parser.error("--login and --login-only are mutually exclusive")
+    if (args.login or args.login_only) and not args.relay_url:
+        arg_parser.error("--login / --login-only require --relay-url")
 
-    # Standalone --login (no --mq): just do the device flow against an
-    # already-existing config directory, no scaffolding.
-    if args.login and not args.mq:
+    # --login implies --mq (relay is a message queue). Set it here so the
+    # downstream scaffold writes a relay-flavoured app.yml.
+    if args.login:
+        args.mq = True
+        # Refuse to clobber an existing app.yml unless --force is set —
+        # this is almost certainly the operator's hand-rolled config and
+        # they want --login-only instead.
+        existing_app_yaml = os.path.join(directory, DEFAULT_APP_YAML)
+        if os.path.isfile(existing_app_yaml) and not args.force:
+            arg_parser.error(
+                "{path} already exists. Use --login-only to bootstrap relay "
+                "credentials without touching app.yml, or --force to "
+                "regenerate the scaffold from scratch.".format(path=existing_app_yaml)
+            )
+
+    # --login-only: just run the device flow, no scaffolding.
+    if args.login_only:
         if not os.path.exists(directory):
             os.makedirs(directory)
         return _run_relay_login(args, directory)
