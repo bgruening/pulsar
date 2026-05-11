@@ -18,7 +18,6 @@ from .test_utils import (
     integration_test,
     IntegrationTestConfiguration,
     mark,
-    skip_unless_any_module,
     skip_unless_environ,
     skip_unless_executable,
     skip_unless_module,
@@ -420,7 +419,6 @@ def test_integration_tes_mq(external_queue_test_configuration: IntegrationTestCo
     )
 
 
-@skip_unless_any_module(["pycurl", "poster", "requests_toolbelt"])
 @integration_test
 def test_integration_remote_transfer(direct_test_configuration: IntegrationTestConfiguration):
     run_job(
