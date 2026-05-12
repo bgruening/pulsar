@@ -4,6 +4,10 @@ import os
 import string
 import sys
 
+from pulsar.client.galaxy_byoc import (
+    GalaxyBYOCRegistrationError,
+    register_with_galaxy,
+)
 from pulsar.main import (
     ArgumentParser,
     DEFAULT_APP_YAML,
@@ -211,6 +215,22 @@ def main(argv=None):
                             action="store_true",
                             default=False,
                             help=HELP_FORCE)
+    arg_parser.add_argument("--register-with-galaxy",
+                            dest="register_with_galaxy",
+                            default=None,
+                            metavar="GALAXY_URL",
+                            help=(
+                                "Bootstrap a BYOC Pulsar registration against a Galaxy "
+                                "server. Drives the relay device flow with pair-issuance "
+                                "and hands the secondary refresh token to Galaxy at "
+                                "/api/pulsar_byoc/bootstrap. Requires --relay-url and "
+                                "--galaxy-token (the one-shot token returned by "
+                                "POST /api/pulsar_byoc/registration)."
+                            ))
+    arg_parser.add_argument("--galaxy-token",
+                            dest="galaxy_token",
+                            default=None,
+                            help="One-shot bootstrap token from /api/pulsar_byoc/registration.")
     # arg_parser.add_argument("--pip_install_args",
     #                         default="pulsar-app",
     #                         help=HELP_PIP_INSTALL_ARGS_HELP)
@@ -223,6 +243,11 @@ def main(argv=None):
         arg_parser.error("--login and --login-only are mutually exclusive")
     if (args.login or args.login_only) and not args.relay_url:
         arg_parser.error("--login / --login-only require --relay-url")
+    if args.register_with_galaxy:
+        if not args.relay_url:
+            arg_parser.error("--register-with-galaxy requires --relay-url")
+        if not args.galaxy_token:
+            arg_parser.error("--register-with-galaxy requires --galaxy-token")
 
     # --login implies --mq (relay is a message queue). Set it here so the
     # downstream scaffold writes a relay-flavoured app.yml.
@@ -244,6 +269,14 @@ def main(argv=None):
         if not os.path.exists(directory):
             os.makedirs(directory)
         return _run_relay_login(args, directory)
+
+    # --register-with-galaxy: pair-issuance device flow + Galaxy callback.
+    # Scaffolds app.yml using the relay-supplied manager_name so the user's
+    # Pulsar binds to the same topics Galaxy publishes to.
+    if args.register_with_galaxy:
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        return _run_register_with_galaxy(args, directory)
 
     mode = _determine_mode(args)
     if mode == "uwsgi":
@@ -331,6 +364,53 @@ def _determine_mode(args):
 
 
 RELAY_CREDENTIALS_FILENAME = "relay_credentials.json"
+
+
+def _run_register_with_galaxy(args, directory):
+    """Drive ``pulsar-config --register-with-galaxy`` end-to-end."""
+    credentials_path = os.path.join(directory, RELAY_CREDENTIALS_FILENAME)
+    try:
+        result = register_with_galaxy(
+            galaxy_url=args.register_with_galaxy,
+            bootstrap_token=args.galaxy_token,
+            relay_url=args.relay_url,
+            credentials_path=credentials_path,
+        )
+    except GalaxyBYOCRegistrationError as exc:
+        print("BYOC registration failed: {}".format(exc), file=sys.stderr)
+        return 1
+
+    # Write a minimal app.yml that binds Pulsar to the manager_name the
+    # relay handed us (= the JWT ``sub``), via the credentials file we
+    # just wrote.
+    manager_name = result["manager_name"]
+    app_yaml_path = os.path.join(directory, DEFAULT_APP_YAML)
+    if os.path.exists(app_yaml_path) and not args.force:
+        print(
+            " - {path} already exists; not overwriting. Configure your Pulsar to "
+            "use manager.name='{m}' and message_queue_credentials_file='{c}'.".format(
+                path=app_yaml_path, m=manager_name, c=credentials_path
+            )
+        )
+    else:
+        contents = (
+            "---\n"
+            "managers:\n"
+            "  {m}: {{}}\n"
+            'message_queue_url: "{url}"\n'
+            'message_queue_credentials_file: "{c}"\n'
+        ).format(m=manager_name, url=args.relay_url, c=credentials_path)
+        with open(app_yaml_path, "w") as fh:
+            fh.write(contents)
+        print(" - {path} written (manager.name='{m}').".format(path=app_yaml_path, m=manager_name))
+
+    print(
+        " - registered with Galaxy at {url} as manager '{m}'.".format(
+            url=args.register_with_galaxy, m=manager_name
+        )
+    )
+    print(" - relay credentials at {p} (primary refresh token).".format(p=credentials_path))
+    return 0
 
 
 def _run_relay_login(args, directory):

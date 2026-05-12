@@ -3,12 +3,13 @@
 Kept in its own module so the long-running daemon import path doesn't pull
 ``time.sleep`` based polling code, terminal-formatting heuristics, etc.
 """
+
 from __future__ import annotations
 
 import logging
 import sys
 import time
-from typing import Callable, Optional
+from typing import Any, Callable, cast
 
 import requests
 
@@ -55,20 +56,24 @@ class RelayDeviceFlowAuthenticator:
         relay_url: str,
         credentials_file: CredentialsFile,
         *,
-        client_hint: Optional[str] = None,
+        client_hint: str | None = None,
         timeout: int = 10,
         max_wait_seconds: int = 600,
-        on_user_code: Optional[Callable[[str, str], None]] = None,
+        on_user_code: Callable[[str, str], None] | None = None,
+        pair: bool = False,
     ):
         self.relay_url = relay_url.rstrip("/")
         self._credentials_file = credentials_file
         self._client_hint = client_hint or "pulsar-config"
         self._timeout = timeout
         self._max_wait = max_wait_seconds
+        # When True, request a refresh-token pair (relay extension used by
+        # the Galaxy BYOC bootstrap so the host and Galaxy each get an
+        # independent rotation chain). The secondary token is surfaced on
+        # the return value but never written to disk.
+        self._pair = pair
         # Hook for tests / alternative UIs to receive (verification_uri_complete, user_code).
-        self._on_user_code = on_user_code or (
-            lambda uri, code: _print_banner(uri, code)
-        )
+        self._on_user_code = on_user_code or (lambda uri, code: _print_banner(uri, code))
 
     def run(self) -> dict:
         """Execute the full handshake. Returns the persisted credentials dict."""
@@ -82,9 +87,7 @@ class RelayDeviceFlowAuthenticator:
         while True:
             now = time.time()
             if now >= deadline:
-                raise DeviceFlowError(
-                    "Device-flow user code expired before the sign-in completed."
-                )
+                raise DeviceFlowError("Device-flow user code expired before the sign-in completed.")
 
             time.sleep(interval)
             outcome = self._poll(device_code)
@@ -98,7 +101,13 @@ class RelayDeviceFlowAuthenticator:
                     "expires_in": outcome.get("expires_in"),
                     "issued_at": utcnow_iso(),
                 }
+                # The credentials *file* only ever stores the primary token —
+                # the secondary's purpose is to be handed off in-memory to a
+                # delegate (e.g. Galaxy BYOC). Surface it on the return value
+                # but don't persist it.
                 self._credentials_file.save(creds)
+                if outcome.get("refresh_token_secondary"):
+                    creds["refresh_token_secondary"] = outcome["refresh_token_secondary"]
                 log.info("Wrote relay credentials to %s", self._credentials_file.path)
                 return creds
             if kind == "pending":
@@ -117,16 +126,15 @@ class RelayDeviceFlowAuthenticator:
 
     def _request_device_code(self) -> dict:
         url = f"{self.relay_url}/auth/device/code"
+        data = {"client_hint": self._client_hint}
+        if self._pair:
+            data["pair"] = "true"
         try:
-            resp = requests.post(
-                url,
-                data={"client_hint": self._client_hint},
-                timeout=self._timeout,
-            )
+            resp = requests.post(url, data=data, timeout=self._timeout)
             resp.raise_for_status()
         except requests.RequestException as exc:
             raise DeviceFlowError(f"Failed to request device code: {exc}") from exc
-        return resp.json()
+        return cast(dict[str, Any], resp.json())
 
     def _poll(self, device_code: str) -> dict:
         url = f"{self.relay_url}/auth/device/token"
@@ -145,6 +153,7 @@ class RelayDeviceFlowAuthenticator:
                 "kind": "tokens",
                 "access_token": body["access_token"],
                 "refresh_token": body.get("refresh_token"),
+                "refresh_token_secondary": body.get("refresh_token_secondary"),
                 "expires_in": body.get("expires_in"),
             }
         # Per RFC 8628 §3.5 errors come back as 4xx with an OAuth error code.
@@ -161,9 +170,7 @@ class RelayDeviceFlowAuthenticator:
             return {"kind": "denied"}
         if error == "expired_token":
             return {"kind": "expired"}
-        raise DeviceFlowError(
-            f"Device-flow polling returned HTTP {resp.status_code}: {body}"
-        )
+        raise DeviceFlowError(f"Device-flow polling returned HTTP {resp.status_code}: {body}")
 
 
 __all__ = ["RelayDeviceFlowAuthenticator", "DeviceFlowError"]

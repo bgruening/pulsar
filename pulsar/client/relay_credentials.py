@@ -1,8 +1,12 @@
-"""On-disk relay credentials file.
+"""Relay credentials storage.
 
-Holds the long-lived refresh token written by ``pulsar-config --login``. The
-daemon rotates this file every time it exchanges the refresh token for a new
-access JWT, so the file must be writable and securely permissioned.
+The daemon's on-disk path (``CredentialsFile``) is the canonical store:
+``pulsar-config --login`` writes the refresh token there, and the relay
+auth manager rotates it on every refresh. For embedded use — e.g. Galaxy's
+multi-tenant BYOC runner, which holds rotated tokens in its own vault
+rather than on disk — ``InMemoryCredentialsStore`` exposes the same
+``load`` / ``save`` / ``exists`` shape with a callback fired on every
+rotation so the caller can persist where they like.
 """
 
 import json
@@ -11,7 +15,7 @@ import os
 import stat
 import tempfile
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Optional, cast
 
 log = logging.getLogger(__name__)
 
@@ -28,7 +32,7 @@ class CredentialsFile:
     def exists(self) -> bool:
         return os.path.isfile(self.path)
 
-    def load(self) -> Optional[Dict[str, Any]]:
+    def load(self) -> Optional[dict[str, Any]]:
         """Read the credentials file. Returns ``None`` if it does not exist.
 
         Logs a warning if the file is more permissive than mode 0600.
@@ -48,13 +52,13 @@ class CredentialsFile:
                 SAFE_MODE,
             )
         try:
-            with open(self.path, "r", encoding="utf-8") as f:
-                return json.load(f)
+            with open(self.path, encoding="utf-8") as f:
+                return cast(dict[str, Any], json.load(f))
         except (OSError, json.JSONDecodeError) as exc:
             log.error("Failed to read relay credentials at %s: %s", self.path, exc)
             return None
 
-    def save(self, data: Dict[str, Any]) -> None:
+    def save(self, data: dict[str, Any]) -> None:
         """Atomically write the credentials file with mode 0600.
 
         Writes to ``path.tmp``, fsyncs, sets perms, then renames over the
@@ -77,6 +81,51 @@ class CredentialsFile:
             except OSError:
                 pass
             raise
+
+
+class InMemoryCredentialsStore:
+    """In-memory equivalent of :class:`CredentialsFile`.
+
+    Used by callers (e.g. Galaxy's multi-tenant BYOC Pulsar runner) that
+    hold the relay refresh token in their own secret store. ``save`` writes
+    to memory and fires an optional ``on_save`` callback so the caller can
+    durably persist the rotated token before the next process picks it up.
+
+    Exposes a ``path`` attribute purely for log messages; the value is a
+    sentinel and does not refer to a real file.
+    """
+
+    def __init__(
+        self,
+        relay_url: str,
+        refresh_token: str,
+        on_save: Optional[Callable[[dict[str, Any]], None]] = None,
+        label: str = "<in-memory>",
+    ):
+        self.path = label
+        self._on_save = on_save
+        self._data: dict[str, Any] = {
+            "relay_url": relay_url,
+            "refresh_token": refresh_token,
+            "issued_at": utcnow_iso(),
+        }
+
+    def exists(self) -> bool:
+        return bool(self._data.get("refresh_token"))
+
+    def load(self) -> Optional[dict[str, Any]]:
+        return dict(self._data) if self._data.get("refresh_token") else None
+
+    def save(self, data: dict[str, Any]) -> None:
+        self._data = dict(data)
+        if self._on_save is not None:
+            try:
+                self._on_save(dict(data))
+            except Exception:
+                # The token has been rotated and is held in memory; the
+                # caller-supplied persistence callback failed. Log loudly
+                # but keep serving the new token to the live process.
+                log.exception("on_save callback failed for refresh-token rotation at %s", self.path)
 
 
 def utcnow_iso() -> str:

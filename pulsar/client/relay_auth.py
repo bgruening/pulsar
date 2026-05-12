@@ -15,16 +15,21 @@ A daemon's typical lifecycle is:
    atomically rewrites the credentials file with the rotated refresh token,
    and caches the access JWT until it nears expiry.
 """
+
 from __future__ import annotations
 
 import logging
 import threading
 from datetime import datetime, timedelta, timezone
-from typing import Optional, cast
+from typing import Union, cast
 
 import requests
 
-from .relay_credentials import CredentialsFile, utcnow_iso
+from .relay_credentials import CredentialsFile, InMemoryCredentialsStore, utcnow_iso
+
+# Anything supporting load/save/exists/path. Defined as a Union rather than a
+# Protocol to keep this import-light; both implementations live alongside.
+CredentialsStore = Union[CredentialsFile, InMemoryCredentialsStore]
 
 log = logging.getLogger(__name__)
 
@@ -54,7 +59,7 @@ class PasswordAuthenticator(_Authenticator):
         username: str,
         password: str,
         *,
-        credentials_file: Optional[CredentialsFile] = None,
+        credentials_file: CredentialsStore | None = None,
         timeout: int = 10,
     ):
         self.relay_url = relay_url.rstrip("/")
@@ -108,7 +113,7 @@ class RefreshTokenAuthenticator(_Authenticator):
     def __init__(
         self,
         relay_url: str,
-        credentials_file: CredentialsFile,
+        credentials_file: CredentialsStore,
         *,
         timeout: int = 10,
     ):
@@ -120,8 +125,7 @@ class RefreshTokenAuthenticator(_Authenticator):
         creds = self._credentials_file.load()
         if creds is None or not creds.get("refresh_token"):
             raise RelayAuthError(
-                f"No refresh token at {self._credentials_file.path}; "
-                "run `pulsar-config --login` to bootstrap one."
+                f"No refresh token at {self._credentials_file.path}; " "run `pulsar-config --login` to bootstrap one."
             )
 
         url = f"{self.relay_url}/auth/token/refresh"
@@ -135,10 +139,7 @@ class RefreshTokenAuthenticator(_Authenticator):
             raise RelayAuthError(f"pulsar-relay refresh failed (network): {exc}") from exc
 
         if resp.status_code == 401:
-            raise RelayAuthError(
-                "Refresh token rejected (revoked or expired). "
-                "Re-run `pulsar-config --login`."
-            )
+            raise RelayAuthError("Refresh token rejected (revoked or expired). " "Re-run `pulsar-config --login`.")
         try:
             resp.raise_for_status()
         except requests.HTTPError as exc:
@@ -172,34 +173,41 @@ class RelayAuthManager:
     def __init__(
         self,
         relay_url: str,
-        username: Optional[str] = None,
-        password: Optional[str] = None,
+        username: str | None = None,
+        password: str | None = None,
         *,
-        authenticator: Optional[_Authenticator] = None,
-        credentials_file: Optional[str] = None,
+        authenticator: _Authenticator | None = None,
+        credentials_file: str | None = None,
+        credentials_store: CredentialsStore | None = None,
     ):
         self.relay_url = relay_url.rstrip("/")
-        self._token: Optional[str] = None
-        self._token_expiry: Optional[datetime] = None
+        self._token: str | None = None
+        self._token_expiry: datetime | None = None
         self._lock = threading.Lock()
         # Refresh access JWT 5 minutes before expiry.
         self._refresh_buffer_seconds = 300
 
-        cred_file = CredentialsFile(credentials_file) if credentials_file else None
+        # ``credentials_store`` is the explicit, pre-built store path used by
+        # callers (e.g. the BYOC multi-tenant runner) that keep tokens in
+        # memory and persist rotations to their own vault. ``credentials_file``
+        # is the legacy path string the daemon uses.
+        if credentials_store is not None:
+            cred_store: CredentialsStore | None = credentials_store
+        elif credentials_file is not None:
+            cred_store = CredentialsFile(credentials_file)
+        else:
+            cred_store = None
 
         if authenticator is not None:
             self._authenticator = authenticator
-        elif cred_file is not None and cred_file.exists():
-            # Prefer the refresh-token path when a credentials file is present.
-            self._authenticator = RefreshTokenAuthenticator(self.relay_url, cred_file)
+        elif cred_store is not None and cred_store.exists():
+            # Prefer the refresh-token path when a credentials store is present.
+            self._authenticator = RefreshTokenAuthenticator(self.relay_url, cred_store)
         elif username is not None and password is not None:
-            self._authenticator = PasswordAuthenticator(
-                self.relay_url, username, password, credentials_file=cred_file
-            )
+            self._authenticator = PasswordAuthenticator(self.relay_url, username, password, credentials_file=cred_store)
         else:
             raise ValueError(
-                "RelayAuthManager needs either an Authenticator, a credentials file, "
-                "or username+password."
+                "RelayAuthManager needs either an Authenticator, a credentials file/store, " "or username+password."
             )
 
     # ---- public API ---------------------------------------------------------

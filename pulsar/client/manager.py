@@ -13,6 +13,7 @@ from os import getenv
 from queue import Queue
 from typing import (
     Any,
+    Callable,
     Dict,
     Optional,
     Type,
@@ -38,6 +39,8 @@ from .client import (
 )
 from .destination import url_to_destination_params
 from .object_client import ObjectStoreClient
+from .relay_auth import RelayAuthManager
+from .relay_credentials import InMemoryCredentialsStore
 from .server_interface import (
     HttpPulsarInterface,
     LocalPulsarInterface,
@@ -58,8 +61,9 @@ DEFAULT_TRANSFER_THREADS = 2
 def _per_handler_cursor_path(
     base_path: Optional[str],
     handler_id: Optional[str] = None,
+    manager_name: Optional[str] = None,
 ) -> Optional[str]:
-    """Insert a stable per-handler suffix before the file extension.
+    """Insert a stable per-(handler, manager) suffix before the file extension.
 
     Galaxy job handlers run as separate processes, each polling the relay
     independently with its own cursor. Sharing one file would let
@@ -68,7 +72,13 @@ def _per_handler_cursor_path(
     cursor is read once on first start and then orphaned, defeating the
     point of persisting it.
 
-    Resolution order for the suffix:
+    With BYOC compute resources, one Galaxy handler may also drive *many*
+    Pulsar managers from a single process via a multi-tenant runner;
+    including ``manager_name`` in the suffix keeps each manager's cursor
+    distinct so two tenants on the same handler can't overwrite each
+    other.
+
+    Resolution order for the handler portion of the suffix:
 
     1. ``handler_id`` argument (typically ``app.config.server_name`` from
        the caller — stable across restarts).
@@ -79,17 +89,21 @@ def _per_handler_cursor_path(
     """
     if not base_path:
         return base_path
-    suffix = handler_id or os.environ.get("GALAXY_SERVER_NAME")
-    if not suffix:
-        suffix = f"pid{os.getpid()}"
+    handler_suffix = handler_id or os.environ.get("GALAXY_SERVER_NAME")
+    if not handler_suffix:
+        handler_suffix = f"pid{os.getpid()}"
         log.warning(
             "relay_cursor_path is set but no stable handler id was supplied "
             "(neither relay_handler_id kwarg nor GALAXY_SERVER_NAME env). "
             "Falling back to %s; this cursor will not be picked up after a "
             "process restart, so status updates published while the handler "
             "was down may be skipped.",
-            suffix,
+            handler_suffix,
         )
+    suffix_parts = [handler_suffix]
+    if manager_name and manager_name != "_default_":
+        suffix_parts.append(manager_name)
+    suffix = "-".join(suffix_parts)
     root, ext = os.path.splitext(base_path)
     return f"{root}-{suffix}{ext}"
 
@@ -312,6 +326,8 @@ class RelayClientManager(BaseRemoteConfiguredJobClientManager):
         relay_cursor_path: Optional[str] = None,
         relay_handler_id: Optional[str] = None,
         relay_credentials_file: Optional[str] = None,
+        relay_refresh_token: Optional[str] = None,
+        on_refresh_token_rotated: Optional[Callable[[Dict[str, Any]], None]] = None,
         **kwds: Dict[str, Any],
     ):
         super().__init__(**kwds)
@@ -324,16 +340,33 @@ class RelayClientManager(BaseRemoteConfiguredJobClientManager):
         # published by Pulsar while Galaxy was down. Galaxy job handlers run as
         # separate processes — each one polls the relay independently and so
         # tracks its own cursor — so we expand the operator-supplied path with
-        # a stable per-handler suffix (``relay_handler_id`` or
-        # ``GALAXY_SERVER_NAME``) to give every handler its own file. A shared
-        # cursor would suffer last-writer-wins corruption when handlers persist
-        # concurrently and could silently rewind another handler's progress.
+        # a stable per-(handler, manager) suffix (``relay_handler_id`` or
+        # ``GALAXY_SERVER_NAME``, plus ``manager_name``) to give every handler
+        # + tenant its own file. A shared cursor would suffer last-writer-wins
+        # corruption when handlers persist concurrently and could silently
+        # rewind another handler's progress.
+        auth_manager: Optional[RelayAuthManager] = None
+        if relay_refresh_token is not None:
+            # In-memory refresh-token path used by multi-tenant callers
+            # (e.g. Galaxy BYOC) that hold the token in their own secret store
+            # and want rotations persisted via a callback rather than to disk.
+            store = InMemoryCredentialsStore(
+                relay_url=relay_url,
+                refresh_token=relay_refresh_token,
+                on_save=on_refresh_token_rotated,
+                label=f"<in-memory:{self.manager_name}>",
+            )
+            auth_manager = RelayAuthManager(relay_url, credentials_store=store)
+
         self.relay_transport = RelayTransport(
             relay_url,
             username=relay_username,
             password=relay_password,
-            cursor_path=_per_handler_cursor_path(relay_cursor_path, relay_handler_id),
+            cursor_path=_per_handler_cursor_path(
+                relay_cursor_path, relay_handler_id, manager_name=self.manager_name
+            ),
             credentials_file=relay_credentials_file,
+            auth_manager=auth_manager,
         )
         self.relay_topic_prefix = relay_topic_prefix
         self.status_cache = {}
@@ -489,6 +522,7 @@ def build_client_manager(
     relay_username: Optional[str] = None,
     relay_password: Optional[str] = None,
     relay_topic_prefix: Optional[str] = None,
+    relay_refresh_token: Optional[str] = None,
     amqp_url: Optional[str] = None,
     k8s_enabled: Optional[bool] = None,
     tes_enabled: Optional[bool] = None,
@@ -498,12 +532,19 @@ def build_client_manager(
     if job_manager:
         return ClientManager(job_manager=job_manager, **kwargs)  # TODO: Consider more separation here.
     elif relay_url:
-        assert relay_password and relay_username, "relay_url set, but relay_username and relay_password must also be set"
+        if relay_refresh_token is None:
+            # Legacy password auth path. Callers using the in-memory
+            # refresh-token path supply only ``relay_refresh_token``.
+            assert relay_password and relay_username, (
+                "relay_url set, but neither relay_refresh_token nor "
+                "relay_username+relay_password were supplied"
+            )
         return RelayClientManager(
             relay_url=relay_url,
             relay_username=relay_username,
             relay_password=relay_password,
             relay_topic_prefix=relay_topic_prefix or '',
+            relay_refresh_token=relay_refresh_token,
             **kwargs
         )
     elif amqp_url:
