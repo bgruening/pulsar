@@ -14,7 +14,7 @@ from typing import Optional
 import requests
 
 from pulsar import manager_endpoint_util
-from pulsar.client.transport.relay import (
+from pulsar_relay_client import (
     RelayTransport,
     RelayTransportError,
 )

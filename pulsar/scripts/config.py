@@ -420,8 +420,8 @@ def _run_relay_login(args, directory):
     pay the import cost (and works even if ``requests`` is unavailable, which
     matters for some bootstrap scripts).
     """
-    from pulsar.client.relay_credentials import CredentialsFile
-    from pulsar.client.relay_device_flow import (
+    from pulsar_relay_client import (
+        CredentialsFile,
         DeviceFlowError,
         RelayDeviceFlowAuthenticator,
     )

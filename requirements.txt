@@ -9,6 +9,7 @@ paramiko
 typing-extensions
 pydantic-tes>=0.1.5
 pyjwt
+pulsar-relay-client>=1.0,<2
 requests
 tuspy
 google-cloud-batch

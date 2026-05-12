@@ -16,7 +16,7 @@ A user runs ``pulsar-config register-with-galaxy --galaxy <url> --token <one-sho
    the host.
 
 Network calls go through ``requests``; the device-flow / credentials-file
-plumbing is reused from :mod:`pulsar.client.relay_device_flow`.
+plumbing is reused from :mod:`pulsar_relay_client.device_flow`.
 """
 from __future__ import annotations
 
@@ -28,8 +28,8 @@ from typing import Optional
 
 import requests
 
-from .relay_credentials import CredentialsFile
-from .relay_device_flow import (
+from pulsar_relay_client import (
+    CredentialsFile,
     DeviceFlowError,
     RelayDeviceFlowAuthenticator,
 )

@@ -37,17 +37,20 @@ from .client import (
     TesMessageCoexecutionJobClient,
     TesPollingCoexecutionJobClient,
 )
+from pulsar_relay_client import (
+    InMemoryCredentialsStore,
+    RelayAuthManager,
+    RelayTransport,
+)
+
 from .destination import url_to_destination_params
 from .object_client import ObjectStoreClient
-from .relay_auth import RelayAuthManager
-from .relay_credentials import InMemoryCredentialsStore
 from .server_interface import (
     HttpPulsarInterface,
     LocalPulsarInterface,
     PulsarInterface,
 )
 from .transport import get_transport
-from .transport.relay import RelayTransport
 from .util import TransferEventManager
 
 if TYPE_CHECKING:
