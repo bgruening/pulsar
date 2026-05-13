@@ -37,11 +37,6 @@ from .client import (
     TesMessageCoexecutionJobClient,
     TesPollingCoexecutionJobClient,
 )
-from pulsar_relay_client import (
-    InMemoryCredentialsStore,
-    RelayAuthManager,
-    RelayTransport,
-)
 
 from .destination import url_to_destination_params
 from .object_client import ObjectStoreClient
@@ -333,6 +328,15 @@ class RelayClientManager(BaseRemoteConfiguredJobClientManager):
         on_refresh_token_rotated: Optional[Callable[[Dict[str, Any]], None]] = None,
         **kwds: Any,
     ):
+        # Imported lazily so pulsar still installs on Pythons that don't meet
+        # pulsar-relay-client's requires-python (currently 3.10+); the relay
+        # code path is simply unreachable on those interpreters.
+        from pulsar_relay_client import (
+            InMemoryCredentialsStore,
+            RelayAuthManager,
+            RelayTransport,
+        )
+
         super().__init__(**kwds)
 
         if not relay_url:

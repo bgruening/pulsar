@@ -28,12 +28,6 @@ from typing import Optional
 
 import requests
 
-from pulsar_relay_client import (
-    CredentialsFile,
-    DeviceFlowError,
-    RelayDeviceFlowAuthenticator,
-)
-
 
 log = logging.getLogger(__name__)
 
@@ -77,6 +71,14 @@ def register_with_galaxy(
       * Writes the primary refresh token to ``credentials_path``.
       * Calls Galaxy's ``POST /api/pulsar_byoc/bootstrap`` with the secondary.
     """
+    # Imported lazily so pulsar still installs on Pythons that don't meet
+    # pulsar-relay-client's requires-python.
+    from pulsar_relay_client import (
+        CredentialsFile,
+        DeviceFlowError,
+        RelayDeviceFlowAuthenticator,
+    )
+
     cred_file = CredentialsFile(credentials_path)
     flow = RelayDeviceFlowAuthenticator(
         relay_url=relay_url,

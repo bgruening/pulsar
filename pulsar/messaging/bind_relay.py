@@ -14,10 +14,6 @@ from typing import Optional
 import requests
 
 from pulsar import manager_endpoint_util
-from pulsar_relay_client import (
-    RelayTransport,
-    RelayTransportError,
-)
 from .outbox import build_status_outbox
 from .relay_state import RelayState
 
@@ -40,6 +36,14 @@ def bind_manager_to_relay(manager, relay_state: RelayState, relay_url, conf):
         relay_url: URL of the pulsar-relay server
         conf: Configuration dictionary with relay credentials
     """
+    # Imported lazily so pulsar still installs on Pythons that don't meet
+    # pulsar-relay-client's requires-python (currently 3.10+); the relay
+    # code path is simply unreachable on those interpreters.
+    from pulsar_relay_client import (
+        RelayTransport,
+        RelayTransportError,
+    )
+
     manager_name = manager.name
     log.info("bind_manager_to_relay called for relay [%s] and manager [%s]", relay_url, manager_name)
 
