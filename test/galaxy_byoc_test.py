@@ -1,5 +1,6 @@
 """Tests for ``pulsar-config register-with-galaxy`` orchestration."""
 
+import importlib.util
 import json
 import os
 
@@ -10,6 +11,14 @@ from pulsar.client.galaxy_byoc import (
     GalaxyBYOCRegistrationError,
     _decode_jwt_sub,
     register_with_galaxy,
+)
+
+# ``register_with_galaxy`` lazily imports ``pulsar_relay_client``, whose
+# wheel requires Python >=3.10. The pure-Python ``_decode_jwt_sub``
+# tests don't need it; the end-to-end tests do.
+requires_relay_client = pytest.mark.skipif(
+    importlib.util.find_spec("pulsar_relay_client") is None,
+    reason="pulsar-relay-client requires Python >=3.10",
 )
 
 
@@ -40,6 +49,7 @@ def test_decode_jwt_sub_returns_none_on_malformed():
     assert _decode_jwt_sub("only-two.segments") is None
 
 
+@requires_relay_client
 @responses.activate
 def test_register_with_galaxy_happy_path(tmp_path):
     """End-to-end: drive the device-flow with pair=true, then POST the
@@ -109,6 +119,7 @@ def test_register_with_galaxy_happy_path(tmp_path):
     }
 
 
+@requires_relay_client
 @responses.activate
 def test_register_with_galaxy_fails_when_relay_omits_secondary(tmp_path):
     """If the relay returns a single refresh token (i.e. doesn't honor
@@ -150,6 +161,7 @@ def test_register_with_galaxy_fails_when_relay_omits_secondary(tmp_path):
         )
 
 
+@requires_relay_client
 @responses.activate
 def test_register_with_galaxy_surfaces_galaxy_error(tmp_path):
     """If Galaxy rejects the bootstrap (e.g. token expired), the error
