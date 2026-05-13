@@ -86,6 +86,15 @@
 ## Alternatively, use pulsar-relay (experimental) with HTTP/HTTPS instead of AMQP.
 ## This does not require kombu or RabbitMQ.
 #message_queue_url: https://relay-server.example.org:9000
+##
+## Recommended: bootstrap a refresh token via OIDC sign-in once with
+##   pulsar-config --login --relay-url https://relay-server.example.org:9000 --directory .
+## then point this config key at the resulting credentials file. The daemon
+## will rotate the refresh token automatically; no shared password to manage.
+#message_queue_credentials_file: ./relay_credentials.json
+##
+## Legacy: pre-shared username/password. Still supported for backwards
+## compatibility, but new deployments should prefer the credentials file above.
 #message_queue_username: admin
 #message_queue_password: changeme
 

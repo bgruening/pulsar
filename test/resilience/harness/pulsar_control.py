@@ -17,6 +17,16 @@ SERVICE = "pulsar"
 RABBITMQ_MGMT = "http://localhost:15672/api"
 RABBITMQ_AUTH = ("guest", "guest")
 
+# Same direct-bypass principle as RABBITMQ_MGMT: the relay's HTTP port is
+# host-mapped on 8081 so readiness checks can query
+# /messages/poll/stats even while a test scenario has toxiproxy
+# disabled. Harness auth is the bootstrap admin (the same identity
+# pulsar uses), seeded by relay-config.yaml.
+RELAY_HTTP = "http://localhost:8081"
+RELAY_ADMIN_USERNAME = "admin"
+RELAY_ADMIN_PASSWORD = "admin1234"
+_admin_token_cache = {"token": None, "exp": 0.0}
+
 
 def _compose_env(**overrides):
     """Build a subprocess env that lets ``docker compose`` find its plugin.
@@ -149,16 +159,26 @@ class PulsarControl:
         linger for several seconds (especially under a toxiproxy
         latency toxic) until RabbitMQ notices the TCP drop, so the check
         passes against the *previous* pulsar container's stale registration.
-        For AMQP modes we additionally require the management API to
-        show a consumer attached, but only after the bind log confirms
-        the new container has actually run bind_app.
+
+        For AMQP modes the bind log is paired with a RabbitMQ
+        management-API check so the broker confirms a live consumer.
+
+        For relay mode the bind log is paired with a query against
+        ``/messages/poll/stats`` on the relay until pulsar's poll-waiter
+        is registered for at least one of the control topics. This is
+        the deterministic "consumer is on the wire" signal — log-based
+        markers like ``Acquired pulsar-relay access token`` only narrow
+        the window from ~70 ms to ~3 ms (still racy against the
+        relay-side waiter creation), so a publish posted right after
+        ``wait_until_consuming`` returns is guaranteed to land on a live
+        waiter rather than vanish into a topic with no subscribers.
 
         ``poll_interval`` defaults to 0.1 s — the docker-compose-logs +
         mgmt-API combo takes ~30 ms each, so a tight poll cadence shaves
         the dead-poll overhead off the suite without saturating either
         endpoint.
         """
-        marker = "bind_manager_to"
+        bind_marker = "bind_manager_to"
         deadline = time.time() + timeout
         start_ts = time.time()
         while time.time() < deadline:
@@ -166,12 +186,14 @@ class PulsarControl:
                 "logs", "--since", f"{int(time.time() - start_ts) + 2}s",
                 self.service, project_dir=self.project_dir,
             )
-            if marker in (res.stdout or ""):
+            if bind_marker in (res.stdout or ""):
                 if self.mode == "relay":
-                    return
-                # AMQP modes: also confirm the broker sees the consumer.
-                if _amqp_setup_has_consumer():
-                    return
+                    if _relay_has_pulsar_setup_waiter():
+                        return
+                else:
+                    # AMQP modes: also confirm the broker sees the consumer.
+                    if _amqp_setup_has_consumer():
+                        return
             time.sleep(poll_interval)
         raise TimeoutError(
             f"Pulsar did not bind {self.mode} consumers within {timeout}s"
@@ -189,6 +211,50 @@ def _amqp_setup_has_consumer():
     if r.status_code != 200:
         return False
     return int(r.json().get("consumers", 0)) > 0
+
+
+def _relay_admin_token():
+    if _admin_token_cache["token"] and _admin_token_cache["exp"] > time.time() + 30:
+        return _admin_token_cache["token"]
+    # OAuth2 password grant: form-encoded, not JSON.
+    r = requests.post(
+        f"{RELAY_HTTP}/auth/login",
+        data={"username": RELAY_ADMIN_USERNAME, "password": RELAY_ADMIN_PASSWORD},
+        timeout=2,
+    )
+    r.raise_for_status()
+    body = r.json()
+    _admin_token_cache["token"] = body["access_token"]
+    _admin_token_cache["exp"] = time.time() + int(body.get("expires_in", 600)) - 60
+    return _admin_token_cache["token"]
+
+
+def _relay_has_pulsar_setup_waiter():
+    """True iff the relay shows a poll-waiter on the ``job_setup`` topic.
+
+    Topics in the relay are namespaced ``{owner_id}/{name}`` (per Phase 3c
+    user isolation). Pulsar is the only consumer that subscribes to
+    ``job_setup`` in the resilience stack, so a waiter on any
+    ``*/job_setup`` is the deterministic "pulsar's consumer thread is past
+    auth and into long_poll" signal — strictly stronger than tailing
+    pulsar's logs for a token-acquired marker.
+    """
+    try:
+        token = _relay_admin_token()
+    except Exception:
+        return False
+    try:
+        r = requests.get(
+            f"{RELAY_HTTP}/messages/poll/stats",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=2,
+        )
+    except Exception:
+        return False
+    if r.status_code != 200:
+        return False
+    counts = r.json().get("topic_subscriber_counts") or {}
+    return any(t.endswith("/job_setup") and n > 0 for t, n in counts.items())
 
 
 def _force_drop_setup_consumer_connections():

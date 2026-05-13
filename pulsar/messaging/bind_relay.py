@@ -14,10 +14,6 @@ from typing import Optional
 import requests
 
 from pulsar import manager_endpoint_util
-from pulsar.client.transport.relay import (
-    RelayTransport,
-    RelayTransportError,
-)
 from .outbox import build_status_outbox
 from .relay_state import RelayState
 
@@ -40,14 +36,29 @@ def bind_manager_to_relay(manager, relay_state: RelayState, relay_url, conf):
         relay_url: URL of the pulsar-relay server
         conf: Configuration dictionary with relay credentials
     """
+    # Imported lazily so pulsar still installs on Pythons that don't meet
+    # pulsar-relay-client's requires-python (currently 3.10+); the relay
+    # code path is simply unreachable on those interpreters.
+    from pulsar_relay_client import (
+        RelayTransport,
+        RelayTransportError,
+    )
+
     manager_name = manager.name
     log.info("bind_manager_to_relay called for relay [%s] and manager [%s]", relay_url, manager_name)
 
-    # Extract relay credentials
-    username = conf.get('message_queue_username', 'admin')
+    # Relay credentials: prefer a refresh-token credentials file
+    # (written by ``pulsar-config --login``); fall back to legacy
+    # username/password for existing deployments.
+    credentials_file = conf.get('message_queue_credentials_file')
+    username = conf.get('message_queue_username')
     password = conf.get('message_queue_password')
-    if not password:
-        raise Exception("message_queue_password is required for relay communication")
+    if not credentials_file and not password:
+        raise Exception(
+            "Relay auth not configured: set either message_queue_credentials_file "
+            "(recommended; run `pulsar-config --login`) or message_queue_username + "
+            "message_queue_password."
+        )
 
     # Extract optional relay topic prefix
     relay_topic_prefix = conf.get('relay_topic_prefix', '')
@@ -56,7 +67,11 @@ def bind_manager_to_relay(manager, relay_state: RelayState, relay_url, conf):
     # restart resumes the long-poll exactly where it left off, rather than
     # silently skipping any setup/kill messages published while it was down.
     relay_transport = RelayTransport(
-        relay_url, username, password, cursor_path=_server_cursor_path(manager),
+        relay_url,
+        username=username,
+        password=password,
+        cursor_path=_server_cursor_path(manager),
+        credentials_file=credentials_file,
     )
 
     # Define message handlers
