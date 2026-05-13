@@ -48,8 +48,8 @@ services:
       - PULSAR_VALKEY_PASSWORD=ci_valkey_pw
       - PULSAR_JWT_SECRET_KEY=ci-jwt-secret-not-for-prod-use-only-32+
       - PULSAR_BOOTSTRAP_ADMIN_PASSWORD=admin1234
-      - PULSAR_ALLOWED_ORIGINS=*
-      - PULSAR_TRUSTED_HOSTS=*
+      - PULSAR_ALLOWED_ORIGINS=["*"]
+      - PULSAR_TRUSTED_HOSTS=["*"]
       - PULSAR_ALLOW_INSECURE_DEFAULTS=1
     networks: [pulsar-net]
 
