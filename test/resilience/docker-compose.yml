@@ -38,6 +38,19 @@ services:
     image: ghcr.io/mvdbeek/pulsar-relay:latest
     volumes:
       - ./config/relay-config.yaml:/etc/pulsar-relay/config.yaml:ro
+    environment:
+      # Post-0.2.0 the image's supervisord template requires
+      # PULSAR_VALKEY_PASSWORD (substituted into the valkey-server
+      # command line). The rest of the new secrets guard is opted out
+      # of via the documented PULSAR_ALLOW_INSECURE_DEFAULTS escape
+      # hatch — this is a CI fault-injection harness on a private
+      # bridge network, not a production deployment.
+      - PULSAR_VALKEY_PASSWORD=ci_valkey_pw
+      - PULSAR_JWT_SECRET_KEY=ci-jwt-secret-not-for-prod-use-only-32+
+      - PULSAR_BOOTSTRAP_ADMIN_PASSWORD=admin1234
+      - PULSAR_ALLOWED_ORIGINS=*
+      - PULSAR_TRUSTED_HOSTS=*
+      - PULSAR_ALLOW_INSECURE_DEFAULTS=1
     networks: [pulsar-net]
 
   toxiproxy:
