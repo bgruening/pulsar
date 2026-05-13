@@ -68,6 +68,10 @@ services:
       - MOCK_GALAXY_RELAY_USERNAME=admin
       - MOCK_GALAXY_RELAY_PASSWORD=admin1234
       - MOCK_GALAXY_MANAGER=_default_
+      # The relay-mode harness routes plaintext http through toxiproxy so
+      # faults can be injected without TLS termination in the compose stack.
+      # Opt in to the client's insecure bypass for this controlled context.
+      - PULSAR_RELAY_ALLOW_INSECURE=1
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -84,6 +88,8 @@ services:
     environment:
       - PULSAR_CONFIG_DIR=/etc/pulsar
       - PULSAR_MODE=${PULSAR_MODE:-amqp}    # amqp | amqp_ack | relay
+      # See mock-galaxy: same insecure-bypass opt-in for the toxiproxy path.
+      - PULSAR_RELAY_ALLOW_INSECURE=1
     volumes:
       - ./config:/etc/pulsar:ro
       - pulsar-staging:/pulsar/staging
