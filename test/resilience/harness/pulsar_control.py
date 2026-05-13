@@ -153,12 +153,24 @@ class PulsarControl:
         show a consumer attached, but only after the bind log confirms
         the new container has actually run bind_app.
 
+        Relay mode additionally waits for ``Acquired pulsar-relay access
+        token``, which is logged immediately before the consumer thread
+        issues its first long-poll. Without this, the harness can return
+        between ``bind_manager_to_relay`` and the first
+        ``POST /messages/poll`` — the relay only delivers messages
+        published *after* a waiter exists, so a setup message that
+        beats pulsar's first poll by even a few ms is permanently lost
+        (see B3 flake before this guard).
+
         ``poll_interval`` defaults to 0.1 s — the docker-compose-logs +
         mgmt-API combo takes ~30 ms each, so a tight poll cadence shaves
         the dead-poll overhead off the suite without saturating either
         endpoint.
         """
-        marker = "bind_manager_to"
+        bind_marker = "bind_manager_to"
+        # Logged by pulsar_relay_client.auth right before the first
+        # long_poll() call lands on the relay.
+        relay_first_poll_marker = "Acquired pulsar-relay access token"
         deadline = time.time() + timeout
         start_ts = time.time()
         while time.time() < deadline:
@@ -166,12 +178,15 @@ class PulsarControl:
                 "logs", "--since", f"{int(time.time() - start_ts) + 2}s",
                 self.service, project_dir=self.project_dir,
             )
-            if marker in (res.stdout or ""):
+            stdout = res.stdout or ""
+            if bind_marker in stdout:
                 if self.mode == "relay":
-                    return
-                # AMQP modes: also confirm the broker sees the consumer.
-                if _amqp_setup_has_consumer():
-                    return
+                    if relay_first_poll_marker in stdout:
+                        return
+                else:
+                    # AMQP modes: also confirm the broker sees the consumer.
+                    if _amqp_setup_has_consumer():
+                        return
             time.sleep(poll_interval)
         raise TimeoutError(
             f"Pulsar did not bind {self.mode} consumers within {timeout}s"
