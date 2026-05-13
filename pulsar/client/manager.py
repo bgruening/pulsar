@@ -130,7 +130,7 @@ class ClientManager(ClientManagerInterface):
     job_manager_interface_class: Type[PulsarInterface]
     client_class: Type[BaseJobClient]
 
-    def __init__(self, job_manager: Optional["ManagerInterface"] = None, **kwds: Dict[str, Any]):
+    def __init__(self, job_manager: Optional["ManagerInterface"] = None, **kwds: Any):
         """Build a HTTP client or a local client that talks directly to a job manger."""
         if 'pulsar_app' in kwds or job_manager:
             self.job_manager_interface_class = LocalPulsarInterface
@@ -179,7 +179,7 @@ except ImportError:
 
 class BaseRemoteConfiguredJobClientManager(ClientManagerInterface):
 
-    def __init__(self, **kwds: Dict[str, Any]):
+    def __init__(self, **kwds: Any):
         self.manager_name = kwds.get("manager", None) or "_default_"
 
 
@@ -187,7 +187,7 @@ class MessageQueueClientManager(BaseRemoteConfiguredJobClientManager):
     status_cache: Dict[str, Any]
     ack_consumer_threads: Dict[str, threading.Thread]
 
-    def __init__(self, amqp_url: str, **kwds: Dict[str, Any]):
+    def __init__(self, amqp_url: str, **kwds: Any):
         super().__init__(**kwds)
         self.url = amqp_url
         self.amqp_key_prefix = kwds.get("amqp_key_prefix", None)
@@ -331,7 +331,7 @@ class RelayClientManager(BaseRemoteConfiguredJobClientManager):
         relay_credentials_file: Optional[str] = None,
         relay_refresh_token: Optional[str] = None,
         on_refresh_token_rotated: Optional[Callable[[Dict[str, Any]], None]] = None,
-        **kwds: Dict[str, Any],
+        **kwds: Any,
     ):
         super().__init__(**kwds)
 

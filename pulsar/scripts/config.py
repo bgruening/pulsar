@@ -239,30 +239,7 @@ def main(argv=None):
     relative_directory = directory
     directory = os.path.abspath(directory)
 
-    if args.login and args.login_only:
-        arg_parser.error("--login and --login-only are mutually exclusive")
-    if (args.login or args.login_only) and not args.relay_url:
-        arg_parser.error("--login / --login-only require --relay-url")
-    if args.register_with_galaxy:
-        if not args.relay_url:
-            arg_parser.error("--register-with-galaxy requires --relay-url")
-        if not args.galaxy_token:
-            arg_parser.error("--register-with-galaxy requires --galaxy-token")
-
-    # --login implies --mq (relay is a message queue). Set it here so the
-    # downstream scaffold writes a relay-flavoured app.yml.
-    if args.login:
-        args.mq = True
-        # Refuse to clobber an existing app.yml unless --force is set —
-        # this is almost certainly the operator's hand-rolled config and
-        # they want --login-only instead.
-        existing_app_yaml = os.path.join(directory, DEFAULT_APP_YAML)
-        if os.path.isfile(existing_app_yaml) and not args.force:
-            arg_parser.error(
-                "{path} already exists. Use --login-only to bootstrap relay "
-                "credentials without touching app.yml, or --force to "
-                "regenerate the scaffold from scratch.".format(path=existing_app_yaml)
-            )
+    _validate_relay_args(args, arg_parser, directory)
 
     # --login-only: just run the device flow, no scaffolding.
     if args.login_only:
@@ -302,6 +279,33 @@ def main(argv=None):
     # credentials file lands next to the freshly-scaffolded app.yml.
     if args.login:
         return _run_relay_login(args, directory)
+
+
+def _validate_relay_args(args, arg_parser, directory):
+    if args.login and args.login_only:
+        arg_parser.error("--login and --login-only are mutually exclusive")
+    if (args.login or args.login_only) and not args.relay_url:
+        arg_parser.error("--login / --login-only require --relay-url")
+    if args.register_with_galaxy:
+        if not args.relay_url:
+            arg_parser.error("--register-with-galaxy requires --relay-url")
+        if not args.galaxy_token:
+            arg_parser.error("--register-with-galaxy requires --galaxy-token")
+
+    # --login implies --mq (relay is a message queue). Set it here so the
+    # downstream scaffold writes a relay-flavoured app.yml.
+    if args.login:
+        args.mq = True
+        # Refuse to clobber an existing app.yml unless --force is set —
+        # this is almost certainly the operator's hand-rolled config and
+        # they want --login-only instead.
+        existing_app_yaml = os.path.join(directory, DEFAULT_APP_YAML)
+        if os.path.isfile(existing_app_yaml) and not args.force:
+            arg_parser.error(
+                "{path} already exists. Use --login-only to bootstrap relay "
+                "credentials without touching app.yml, or --force to "
+                "regenerate the scaffold from scratch.".format(path=existing_app_yaml)
+            )
 
 
 def _print_config_summary(args, mode, relative_directory):
