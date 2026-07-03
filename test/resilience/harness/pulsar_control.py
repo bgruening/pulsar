@@ -25,6 +25,7 @@ RABBITMQ_AUTH = ("guest", "guest")
 RELAY_HTTP = "http://localhost:8081"
 RELAY_ADMIN_USERNAME = "admin"
 RELAY_ADMIN_PASSWORD = "admin1234"
+RELAY_DRAIN_TIMEOUT = 7.0
 _admin_token_cache = {"token": None, "exp": 0.0}
 
 
@@ -129,11 +130,7 @@ class PulsarControl:
 
     def stop(self):
         _docker_compose("stop", self.service, project_dir=self.project_dir)
-        if self.mode == "relay":
-            # Deterministically await the relay dropping this pulsar's
-            # job_setup poll-waiter (see kill() for why the count lingers).
-            # Without this, the next test's setup can race a stale waiter.
-            _wait_relay_setup_waiters_drained()
+        self._after_stopped()
 
     def kill(self, signal="KILL"):
         _docker_compose("kill", "-s", signal, self.service, project_dir=self.project_dir)
@@ -146,15 +143,13 @@ class PulsarControl:
             # the broker to drop the dead consumer by closing each
             # consumer's connection through the management API.
             _force_drop_setup_consumer_connections()
-        elif self.mode == "relay":
-            # The relay-mode analogue: pulsar's control consumer holds a
-            # 30 s ``long_poll`` waiter on the relay (see bind_relay.py). A
-            # killed container's waiter lingers until the relay notices the
-            # dropped connection, so ``_relay_has_pulsar_setup_waiter`` —
-            # which returns True on *any* nonzero job_setup waiter — can
-            # pass against the dead pulsar's registration. Await the drain
-            # so the following ``wait_until_consuming`` only sees the
-            # freshly-started pulsar.
+        else:
+            self._after_stopped()
+
+    def _after_stopped(self):
+        if self.mode == "relay":
+            # A stale long-poll waiter can make the next readiness check pass
+            # before the restarted Pulsar has subscribed.
             _wait_relay_setup_waiters_drained()
 
     def sigterm(self):
@@ -247,14 +242,8 @@ def _relay_admin_token():
 def _relay_setup_waiter_count():
     """Number of relay poll-waiters across all ``*/job_setup`` topics.
 
-    Topics in the relay are namespaced ``{owner_id}/{name}`` (per Phase 3c
-    user isolation). Pulsar is the only consumer that subscribes to
-    ``job_setup`` in the resilience stack, so the total waiter count on
-    ``*/job_setup`` reflects pulsar's live control-consumer registrations.
-
     Returns ``None`` when the relay can't be queried, so callers can tell
-    "unknown" apart from a confirmed zero (draining vs. readiness treat
-    that ambiguity differently).
+    "unknown" apart from a confirmed zero.
     """
     try:
         token = _relay_admin_token()
@@ -275,31 +264,16 @@ def _relay_setup_waiter_count():
 
 
 def _relay_has_pulsar_setup_waiter():
-    """True iff the relay shows a poll-waiter on the ``job_setup`` topic.
-
-    A waiter on any ``*/job_setup`` is the deterministic "pulsar's consumer
-    thread is past auth and into long_poll" signal — strictly stronger than
-    tailing pulsar's logs for a token-acquired marker. Paired with the
-    drain-on-teardown in ``stop``/``kill``, the count reflects only the
-    freshly-started pulsar rather than a lingering dead registration.
-    """
+    """True iff the relay shows a poll-waiter on a ``job_setup`` topic."""
     return bool(_relay_setup_waiter_count())
 
 
-def _wait_relay_setup_waiters_drained(timeout=15.0, poll_interval=0.25):
+def _wait_relay_setup_waiters_drained(timeout=RELAY_DRAIN_TIMEOUT, poll_interval=0.25):
     """Block until the relay reports zero ``*/job_setup`` poll-waiters.
 
     After a pulsar stop/kill the relay keeps the old consumer's long-poll
-    waiter registered until it notices the dropped connection — up to the
-    30 s ``long_poll`` timeout, though a graceful stop closes the socket far
-    sooner. Awaiting the drain makes teardown deterministic so the next
-    test's ``wait_until_consuming`` can't mistake a lingering waiter for the
-    freshly-started pulsar.
-
-    Best-effort: returns ``True`` once drained, ``False`` if the bound
-    elapses (teardown then proceeds rather than hanging the suite). A ``None``
-    count (relay unreachable) is treated as "keep polling" — the bound still
-    caps the wait — so a transient blip doesn't skip the drain.
+    waiter registered until it notices the dropped connection or the
+    test-configured poll times out. ``None`` is treated as "keep polling".
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
