@@ -25,6 +25,7 @@ RABBITMQ_AUTH = ("guest", "guest")
 RELAY_HTTP = "http://localhost:8081"
 RELAY_ADMIN_USERNAME = "admin"
 RELAY_ADMIN_PASSWORD = "admin1234"
+RELAY_DRAIN_TIMEOUT = 7.0
 _admin_token_cache = {"token": None, "exp": 0.0}
 
 
@@ -129,6 +130,7 @@ class PulsarControl:
 
     def stop(self):
         _docker_compose("stop", self.service, project_dir=self.project_dir)
+        self._after_stopped()
 
     def kill(self, signal="KILL"):
         _docker_compose("kill", "-s", signal, self.service, project_dir=self.project_dir)
@@ -141,6 +143,14 @@ class PulsarControl:
             # the broker to drop the dead consumer by closing each
             # consumer's connection through the management API.
             _force_drop_setup_consumer_connections()
+        else:
+            self._after_stopped()
+
+    def _after_stopped(self):
+        if self.mode == "relay":
+            # A stale long-poll waiter can make the next readiness check pass
+            # before the restarted Pulsar has subscribed.
+            _wait_relay_setup_waiters_drained()
 
     def sigterm(self):
         self.kill("TERM")
@@ -229,20 +239,16 @@ def _relay_admin_token():
     return _admin_token_cache["token"]
 
 
-def _relay_has_pulsar_setup_waiter():
-    """True iff the relay shows a poll-waiter on the ``job_setup`` topic.
+def _relay_setup_waiter_count():
+    """Number of relay poll-waiters across all ``*/job_setup`` topics.
 
-    Topics in the relay are namespaced ``{owner_id}/{name}`` (per Phase 3c
-    user isolation). Pulsar is the only consumer that subscribes to
-    ``job_setup`` in the resilience stack, so a waiter on any
-    ``*/job_setup`` is the deterministic "pulsar's consumer thread is past
-    auth and into long_poll" signal — strictly stronger than tailing
-    pulsar's logs for a token-acquired marker.
+    Returns ``None`` when the relay can't be queried, so callers can tell
+    "unknown" apart from a confirmed zero.
     """
     try:
         token = _relay_admin_token()
     except Exception:
-        return False
+        return None
     try:
         r = requests.get(
             f"{RELAY_HTTP}/messages/poll/stats",
@@ -250,11 +256,31 @@ def _relay_has_pulsar_setup_waiter():
             timeout=2,
         )
     except Exception:
-        return False
+        return None
     if r.status_code != 200:
-        return False
+        return None
     counts = r.json().get("topic_subscriber_counts") or {}
-    return any(t.endswith("/job_setup") and n > 0 for t, n in counts.items())
+    return sum(n for t, n in counts.items() if t.endswith("/job_setup"))
+
+
+def _relay_has_pulsar_setup_waiter():
+    """True iff the relay shows a poll-waiter on a ``job_setup`` topic."""
+    return bool(_relay_setup_waiter_count())
+
+
+def _wait_relay_setup_waiters_drained(timeout=RELAY_DRAIN_TIMEOUT, poll_interval=0.25):
+    """Block until the relay reports zero ``*/job_setup`` poll-waiters.
+
+    After a pulsar stop/kill the relay keeps the old consumer's long-poll
+    waiter registered until it notices the dropped connection or the
+    test-configured poll times out. ``None`` is treated as "keep polling".
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _relay_setup_waiter_count() == 0:
+            return True
+        time.sleep(poll_interval)
+    return False
 
 
 def _force_drop_setup_consumer_connections():

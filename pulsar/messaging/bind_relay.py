@@ -21,12 +21,18 @@ from .relay_state import RelayState
 
 log = logging.getLogger(__name__)
 
+DEFAULT_RELAY_LONG_POLL_TIMEOUT = 30.0
+
 
 def _server_cursor_path(manager) -> Optional[str]:
     persistence_directory = manager.persistence_directory
     if not persistence_directory:
         return None
     return os.path.join(persistence_directory, "%s-relay-cursor.json" % manager.name)
+
+
+def _relay_long_poll_timeout(conf):
+    return float(conf.get("relay_long_poll_timeout", DEFAULT_RELAY_LONG_POLL_TIMEOUT))
 
 
 def build_relay_transport(manager, relay_url, conf):
@@ -93,6 +99,7 @@ def bind_manager_to_relay(manager, relay_state: RelayState, relay_url, conf, rel
     # Start consumer threads if message_queue_consume is enabled
     if conf.get("message_queue_consume", True):
         log.info("Starting relay consumer threads for manager '%s'", manager_name)
+        long_poll_timeout = _relay_long_poll_timeout(conf)
 
         # Single consumer thread for all control messages
         consumer_thread = start_consumer(
@@ -103,7 +110,8 @@ def bind_manager_to_relay(manager, relay_state: RelayState, relay_url, conf, rel
                 setup_topic: process_setup_messages,
                 status_request_topic: process_status_messages,
                 kill_topic: process_kill_messages,
-            }
+            },
+            long_poll_timeout=long_poll_timeout,
         )
 
         relay_state.threads.append(consumer_thread)
@@ -143,7 +151,13 @@ def bind_manager_to_relay(manager, relay_state: RelayState, relay_url, conf, rel
         manager.set_state_change_callback(bind_on_status_change)
 
 
-def start_consumer(relay_transport, relay_state: RelayState, topics, handlers):
+def start_consumer(
+    relay_transport,
+    relay_state: RelayState,
+    topics,
+    handlers,
+    long_poll_timeout=DEFAULT_RELAY_LONG_POLL_TIMEOUT,
+):
     """Start a consumer thread that polls for messages.
 
     Args:
@@ -160,8 +174,7 @@ def start_consumer(relay_transport, relay_state: RelayState, topics, handlers):
 
         while relay_state.active:
             try:
-                # Long poll for messages (30 second timeout)
-                messages = relay_transport.long_poll(topics, timeout=30)
+                messages = relay_transport.long_poll(topics, timeout=long_poll_timeout)
 
                 for message in messages:
                     topic = message.get('topic')
