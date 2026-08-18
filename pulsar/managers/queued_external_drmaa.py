@@ -61,8 +61,7 @@ class ExternalDrmaaQueueManager(BaseDrmaaManager):
         if not external_id:
             raise KeyError("Failed to find external id for job_id %s" % job_id)
         external_status = super()._get_status_external(external_id)
-        # Any terminal status means the job is done with the working directory -
-        # a DRM-side failure needs it chowned back just as much as a success does.
+        # Reclaim the working directory before Pulsar reads terminal job data.
         if status.is_job_done(external_status) and job_id not in self.reclaimed:
             self.reclaimed[job_id] = True
             self.__change_ownership(job_id, getuser())

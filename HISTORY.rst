@@ -20,8 +20,7 @@ History
   paths.
 * Report DRM-side job failures as ``failed`` instead of ``complete`` (thanks to
   `@gkr0110`_), and make ``failed`` terminal in ``StatefulManagerProxy`` so such
-  jobs are deactivated, staged back, and pushed to the client rather than polled
-  forever with no notification.
+  jobs are deactivated, staged back, and reported to the client.
 
 ---------------------
 0.15.15 (2026-07-13)

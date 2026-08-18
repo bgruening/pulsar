@@ -39,16 +39,11 @@ JOB_FILE_PREPROCESSED = "preprocessed"
 JOB_FILE_PREPROCESSING_FAILED = "preprocessing_failed"
 JOB_METADATA_RUNNING = "running"
 
-# Statuses that end a job's life under this proxy. status.is_job_done() also
-# counts LOST, which is deliberately left out: ExternalBaseManager reports LOST
-# for a job whose external id has not been recovered yet, and the monitor is
-# bound before recover_active_jobs runs, so treating it as terminal would race a
-# restart into abandoning jobs that are fine.
+# LOST is excluded because the monitor starts before external job IDs are
+# recovered; treating it as terminal could discard recoverable jobs at startup.
 TERMINAL_STATUSES = (status.COMPLETE, status.CANCELLED, status.FAILED)
 
-# Of those, the ones whose outputs are staged back before the status is reported
-# to the client. CANCELLED is left out because the client initiated it and is
-# not waiting to be told.
+# Stage outputs before reporting completion or failure to the client.
 POSTPROCESSED_STATUSES = (status.COMPLETE, status.FAILED)
 
 ACTIVE_STATUS_PREPROCESSING = "preprocessing"
@@ -182,8 +177,7 @@ class StatefulManagerProxy(ManagerProxy):
         if state_change == "to_complete":
             self.__handle_terminal_status(job_id, proxy_status)
         elif state_change == "to_preprocessing_failed":
-            # Preprocessing already fired the failure callback and the job never
-            # launched, so there is nothing to stage back and nobody to notify.
+            # The launch failure callback was already sent during preprocessing.
             self.__deactivate(job_id)
         elif state_change == "to_running":
             self.__state_change_callback(status.RUNNING, job_id)
@@ -227,17 +221,13 @@ class StatefulManagerProxy(ManagerProxy):
     def __postprocessing_pending(self, job_directory):
         if job_directory.has_metadata(JOB_FILE_POSTPROCESSED):
             return False
-        # A job that failed before it launched is never postprocessed, so it is
-        # terminal as soon as it is reported.
+        # Preprocessing failures never launch and have no outputs to stage.
         return not job_directory.has_metadata(JOB_FILE_PREPROCESSING_FAILED)
 
     def __handle_terminal_status(self, job_id, proxy_status):
         self.__deactivate(job_id)
         if proxy_status in POSTPROCESSED_STATUSES:
-            # Postprocessing fires the terminal callback itself once outputs are
-            # staged, so a failed job still returns whatever the job produced -
-            # and message-driven clients never poll, so without that callback the
-            # job just hangs.
+            # Postprocessing stages outputs before sending the terminal callback.
             self.__handle_postprocessing(job_id, proxy_status)
 
     def __deactivate(self, job_id):

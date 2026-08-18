@@ -1,7 +1,7 @@
 try:
     from drmaa import JobState
 except (OSError, ImportError, RuntimeError):
-    # Mirrors base_drmaa - the bindings are optional, the module still imports.
+    # DRMAA bindings are optional.
     JobState = None
 
 from .test_utils import (
@@ -36,8 +36,7 @@ class DrmaaManagerTest(BaseManagerTestCase):
 
     @skip_unless_module("drmaa")
     def test_drmaa_state_to_pulsar_status(self):
-        # The whole table, not just the entry of the day - a status the stateful
-        # manager does not recognize as terminal leaves the job hanging forever.
+        # Cover the full mapping so every DRMAA state uses Pulsar's vocabulary.
         expected = {
             JobState.UNDETERMINED: status.COMPLETE,
             JobState.QUEUED_ACTIVE: status.QUEUED,

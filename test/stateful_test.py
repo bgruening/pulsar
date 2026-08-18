@@ -1,10 +1,4 @@
-"""Tests for terminal status handling in :class:`StatefulManagerProxy`.
-
-Every manager runs behind this proxy, so this is where a status returned by a
-proxied manager becomes deactivation, staging, and the state-change callback
-that message-driven clients depend on - they never poll for status, so a
-terminal status that fires no callback is a job that hangs forever.
-"""
+"""Tests for terminal status handling in :class:`StatefulManagerProxy`."""
 import time
 from contextlib import contextmanager
 from shutil import rmtree
@@ -15,9 +9,7 @@ from pulsar.managers.stateful import StatefulManagerProxy
 from .test_utils import minimal_app_for_managers
 
 TEST_JOB_ID = "4"
-# An empty remote staging config is enough for postprocessing to find nothing to
-# collect and report success, without dragging a real action mapper into these
-# tests.
+# An empty staging config exercises postprocessing without external transfers.
 TEST_LAUNCH_CONFIG = {"command_line": "true", "remote_staging": {}}
 
 
@@ -37,7 +29,7 @@ class _ScriptedStatusManager(QueueManager):
 
 
 class _FailingLaunchManager(_ScriptedStatusManager):
-    """Fails at launch, the way a manager that cannot reach its DRM would."""
+    """Raises during launch."""
 
     def launch(self, *args, **kwds):
         raise Exception("Test failure launching job")
@@ -61,8 +53,7 @@ class _RecordingStatefulManagerProxy(StatefulManagerProxy):
 def test_failed_status_deactivates_and_notifies():
     with _launched_job() as (proxy, manager, job_id):
         manager.scripted_status = status.FAILED
-        # Outputs are staged back before the job is reported terminal, so a job
-        # killed for walltime or memory still returns its partial stdout/stderr.
+        # Outputs are staged before the terminal callback.
         assert proxy.get_status(job_id) == status.POSTPROCESSING
         _wait_for_callback(proxy)
         assert proxy.callbacks == [(status.FAILED, job_id)]
@@ -75,9 +66,7 @@ def test_lost_status_is_not_terminal():
     with _launched_job() as (proxy, manager, job_id):
         manager.scripted_status = status.LOST
         assert proxy.get_status(job_id) == status.LOST
-        # A manager reports LOST for a job whose external id it has not recovered
-        # yet, and the monitor is bound before recover_active_jobs runs, so the
-        # job has to stay active and be allowed to come back.
+        # LOST can be transient while an external job ID is being recovered.
         assert proxy.active_jobs.active_job_ids() == [job_id]
         assert manager.deactivated == []
         time.sleep(.1)
@@ -105,7 +94,7 @@ def test_cancelled_status_deactivates_without_notification():
         assert proxy.get_status(job_id) == status.CANCELLED
         assert proxy.active_jobs.active_job_ids() == []
         assert manager.deactivated == [job_id]
-        # The client asked for the cancellation, so it is not waiting to be told.
+        # Cancellation is client-initiated and requires no callback.
         time.sleep(.1)
         assert proxy.callbacks == []
 
@@ -115,8 +104,7 @@ def test_terminal_status_is_reported_once():
         manager.scripted_status = status.FAILED
         proxy.get_status(job_id)
         _wait_for_callback(proxy)
-        # A terminal status is recorded, so the proxied manager is never asked
-        # again and cannot walk the job back out of it.
+        # Persisted terminal status takes precedence over later manager results.
         manager.scripted_status = status.RUNNING
         for _ in range(3):
             assert proxy.get_status(job_id) == status.FAILED
@@ -130,7 +118,7 @@ def test_preprocessing_failure_is_reported_once():
         assert proxy.callbacks == [(status.FAILED, job_id)]
         for _ in range(3):
             assert proxy.get_status(job_id) == status.FAILED
-        # Nothing ran, so there is nothing to stage back and nothing more to say.
+        # No postprocessing or second callback is needed before launch.
         time.sleep(.1)
         assert proxy.callbacks == [(status.FAILED, job_id)]
 
