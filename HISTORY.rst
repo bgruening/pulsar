@@ -18,6 +18,10 @@ History
   ``rewrite`` action, without overloading the ``unstructured`` tool-parameter
   path type. **Note:** ``path_types: "*any*"`` now also matches container image
   paths.
+* Report DRM-side job failures as ``failed`` instead of ``complete`` (thanks to
+  `@gkr0110`_), and make ``failed`` terminal in ``StatefulManagerProxy`` so such
+  jobs are deactivated, staged back, and pushed to the client rather than polled
+  forever with no notification.
 
 ---------------------
 0.15.15 (2026-07-13)
@@ -857,3 +861,4 @@ History
 .. _@ksuderman: https://github.com/ksuderman
 .. _@dSizovs: https://github.com/dSizovs
 .. _@jeis4wpi: https://github.com/jeis4wpi
+.. _@gkr0110: https://github.com/gkr0110

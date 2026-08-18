@@ -1,8 +1,15 @@
+try:
+    from drmaa import JobState
+except (OSError, ImportError, RuntimeError):
+    # Mirrors base_drmaa - the bindings are optional, the module still imports.
+    JobState = None
+
 from .test_utils import (
     BaseManagerTestCase,
     skip_unless_module
 )
 
+from pulsar.managers import status
 from pulsar.managers.queued_drmaa import DrmaaQueueManager
 
 
@@ -13,7 +20,7 @@ class DrmaaManagerTest(BaseManagerTestCase):
         self._set_manager()
 
     def tearDown(self):
-        super().setUp()
+        super().tearDown()
         self.manager.shutdown()
 
     def _set_manager(self, **kwds):
@@ -26,3 +33,37 @@ class DrmaaManagerTest(BaseManagerTestCase):
     @skip_unless_module("drmaa")
     def test_cancel(self):
         self._test_cancelling(self.manager)
+
+    @skip_unless_module("drmaa")
+    def test_drmaa_state_to_pulsar_status(self):
+        # The whole table, not just the entry of the day - a status the stateful
+        # manager does not recognize as terminal leaves the job hanging forever.
+        expected = {
+            JobState.UNDETERMINED: status.COMPLETE,
+            JobState.QUEUED_ACTIVE: status.QUEUED,
+            JobState.SYSTEM_ON_HOLD: status.QUEUED,
+            JobState.USER_ON_HOLD: status.QUEUED,
+            JobState.USER_SYSTEM_ON_HOLD: status.QUEUED,
+            JobState.RUNNING: status.RUNNING,
+            JobState.SYSTEM_SUSPENDED: status.QUEUED,
+            JobState.USER_SUSPENDED: status.QUEUED,
+            JobState.DONE: status.COMPLETE,
+            JobState.FAILED: status.FAILED,
+        }
+        drmaa_session = _StubDrmaaSession()
+        self.manager.drmaa_session = drmaa_session
+        for drmaa_state, expected_status in expected.items():
+            drmaa_session.state = drmaa_state
+            assert self.manager._get_status_external("1234") == expected_status
+
+
+class _StubDrmaaSession:
+
+    def __init__(self):
+        self.state = None
+
+    def job_status(self, external_id):
+        return self.state
+
+    def close(self):
+        pass
