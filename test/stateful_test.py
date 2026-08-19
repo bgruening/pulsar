@@ -1,9 +1,14 @@
 """Tests for terminal status handling in :class:`StatefulManagerProxy`."""
+import threading
 import time
 from contextlib import contextmanager
 from shutil import rmtree
+from unittest import mock
 
-from pulsar.managers import status
+from pulsar.managers import (
+    stateful,
+    status,
+)
 from pulsar.managers.queued import QueueManager
 from pulsar.managers.stateful import StatefulManagerProxy
 from .test_utils import minimal_app_for_managers
@@ -54,7 +59,9 @@ def test_failed_status_deactivates_and_notifies():
     with _launched_job() as (proxy, manager, job_id):
         manager.scripted_status = status.FAILED
         # Outputs are staged before the terminal callback.
-        assert proxy.get_status(job_id) == status.POSTPROCESSING
+        with _postprocessing_held() as release:
+            assert proxy.get_status(job_id) == status.POSTPROCESSING
+            release.set()
         _wait_for_callback(proxy)
         assert proxy.callbacks == [(status.FAILED, job_id)]
         assert proxy.active_jobs.active_job_ids() == []
@@ -73,7 +80,9 @@ def test_lost_status_is_not_terminal():
         assert proxy.callbacks == []
 
         manager.scripted_status = status.COMPLETE
-        assert proxy.get_status(job_id) == status.POSTPROCESSING
+        with _postprocessing_held() as release:
+            assert proxy.get_status(job_id) == status.POSTPROCESSING
+            release.set()
         _wait_for_callback(proxy)
         assert proxy.callbacks == [(status.COMPLETE, job_id)]
 
@@ -81,7 +90,9 @@ def test_lost_status_is_not_terminal():
 def test_complete_status_postprocesses_and_notifies():
     with _launched_job() as (proxy, manager, job_id):
         manager.scripted_status = status.COMPLETE
-        assert proxy.get_status(job_id) == status.POSTPROCESSING
+        with _postprocessing_held() as release:
+            assert proxy.get_status(job_id) == status.POSTPROCESSING
+            release.set()
         _wait_for_callback(proxy)
         assert proxy.callbacks == [(status.COMPLETE, job_id)]
         assert proxy.active_jobs.active_job_ids() == []
@@ -145,6 +156,28 @@ def _launched_job():
         proxy.preprocess_and_launch(job_id, TEST_LAUNCH_CONFIG)
         assert proxy.active_jobs.active_job_ids() == [job_id]
         yield proxy, manager, job_id
+
+
+@contextmanager
+def _postprocessing_held(timeout=5):
+    """Hold postprocessing until the test releases it.
+
+    ``get_status`` starts postprocessing on its own thread and then reports
+    POSTPROCESSING only while that thread has not finished.  These jobs have
+    nothing to stage, so the thread can finish first and ``get_status`` returns
+    the terminal status instead - correct behaviour, but it makes any assertion
+    on POSTPROCESSING a race.
+    """
+    release = threading.Event()
+    real_postprocess = stateful.postprocess
+
+    def held_postprocess(*args, **kwds):
+        if not release.wait(timeout):
+            raise AssertionError("Timed out waiting for postprocessing to be released.")
+        return real_postprocess(*args, **kwds)
+
+    with mock.patch.object(stateful, "postprocess", held_postprocess):
+        yield release
 
 
 def _wait_for_callback(proxy, timeout=5):
