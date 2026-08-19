@@ -1,7 +1,8 @@
 """ Test utilities in pulsar.main """
 from os.path import join
-from .test_utils import temp_directory
+
 from pulsar import main
+from .test_utils import temp_directory
 
 
 def test_pulsar_config_builder_defaults():

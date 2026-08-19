@@ -12,10 +12,9 @@ import time
 
 import pytest
 import requests
-
 from harness.pulsar_control import (
-    RELAY_HTTP,
     _relay_admin_token,
+    RELAY_HTTP,
 )
 
 

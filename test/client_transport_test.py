@@ -1,5 +1,5 @@
-import os
 import contextlib
+import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from uuid import uuid4
@@ -9,21 +9,26 @@ from simplejobfiles.app import JobFilesApp
 from webtest import TestApp
 
 from pulsar.client.exceptions import PulsarClientTransportError
+from pulsar.client.transport import get_transport
+from pulsar.client.transport.curl import (
+    get_file,
+    post_file,
+    PycurlTransport,
+)
+from pulsar.client.transport.requests import (
+    get_file as requests_get_file,
+    post_file as requests_post_file,
+)
 from pulsar.client.transport.standard import UrllibTransport
-from pulsar.client.transport.curl import PycurlTransport
-from pulsar.client.transport.curl import post_file
-from pulsar.client.transport.curl import get_file
-from pulsar.client.transport.requests import get_file as requests_get_file
-from pulsar.client.transport.requests import post_file as requests_post_file
 from pulsar.client.transport.transient import is_transient_http_error
 from pulsar.client.transport.tus import find_tus_endpoint
-from pulsar.client.transport import get_transport
 from pulsar.managers.util.retry import RetryActionExecutor
-
-from .test_utils import files_server
-from .test_utils import server_for_test_app
-from .test_utils import skip_unless_module
-from .test_utils import temp_directory
+from .test_utils import (
+    files_server,
+    server_for_test_app,
+    skip_unless_module,
+    temp_directory,
+)
 
 
 def test_urllib_transports():

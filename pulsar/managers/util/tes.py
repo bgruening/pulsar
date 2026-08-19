@@ -4,7 +4,6 @@ from typing import (
     Optional,
 )
 
-
 IMPORT_MESSAGE = None
 try:
     from pydantictes.api import TesClient

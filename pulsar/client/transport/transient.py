@@ -14,7 +14,6 @@ import requests
 
 from ..exceptions import PulsarClientTransportError
 
-
 # Per RFC 6585 / RFC 9110 plus de-facto convention used by urllib3,
 # Google Cloud SDK, AWS SDK, Azure SDK:
 #   408 Request Timeout    — server gave up waiting

@@ -9,7 +9,7 @@ try:
     from pykube.http import HTTPClient
     from pykube.objects import (
         Job,
-        Pod
+        Pod,
     )
 except ImportError as exc:
     KubeConfig = None

@@ -1,8 +1,8 @@
 from pulsar.client.container_job_config import (
-    GcpJobParams,
-    gcp_job_template,
-    parse_gcp_job_params,
     DEFAULT_GCP_WALLTIME_LIMIT,
+    gcp_job_template,
+    GcpJobParams,
+    parse_gcp_job_params,
     TesJobParams,
 )
 

@@ -6,9 +6,9 @@ import time
 from logging import getLogger
 from subprocess import Popen
 
+from pulsar.client.util import MonitorStyle
 from pulsar.managers import status
 from pulsar.managers.base.directory import DirectoryBaseManager
-from pulsar.client.util import MonitorStyle
 from .util import kill_pid
 
 log = getLogger(__name__)

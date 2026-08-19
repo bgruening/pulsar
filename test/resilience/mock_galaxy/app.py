@@ -34,12 +34,14 @@ import kombu
 import requests
 import uvicorn
 from a2wsgi import WSGIMiddleware
-from fastapi import FastAPI, Request
+from fastapi import (
+    FastAPI,
+    Request,
+)
 from fastapi.responses import JSONResponse
+from recorder import StatusRecorder  # type: ignore
 from simplejobfiles.app import JobFilesApp
 from webob.exc import HTTPException as WebObHTTPException
-
-from recorder import StatusRecorder  # type: ignore
 
 log = logging.getLogger("mock_galaxy")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")

@@ -7,31 +7,51 @@ import threading
 import time
 import traceback
 from contextlib import contextmanager
-from os import pardir, stat, chmod, access, X_OK, pathsep, environ
-from os import makedirs, listdir, system
-from os.path import join, dirname, isfile, split
+from os import (
+    access,
+    chmod,
+    environ,
+    listdir,
+    makedirs,
+    pardir,
+    pathsep,
+    stat,
+    system,
+    X_OK,
+)
+from os.path import (
+    dirname,
+    isfile,
+    join,
+    split,
+)
 from pathlib import Path
-from stat import S_IXGRP, S_IXOTH
 from shutil import rmtree
+from stat import (
+    S_IXGRP,
+    S_IXOTH,
+)
 from tempfile import mkdtemp
 from typing import (
     Any,
     Dict,
     Optional,
 )
-from unittest import TestCase, skip
+from unittest import (
+    skip,
+    TestCase,
+)
 
 import pytest
-from webtest import TestApp
-from webtest.http import StopableWSGIServer
-
 from galaxy.job_metrics import NULL_JOB_INSTRUMENTER
 from galaxy.util.bunch import Bunch
 from simplejobfiles.app import JobFilesApp
+from webtest import TestApp
+from webtest.http import StopableWSGIServer
 
+from pulsar.managers.base import JobDirectory
 from pulsar.managers.util import drmaa
 from pulsar.tools import ToolBox
-from pulsar.managers.base import JobDirectory
 from pulsar.user_auth.manager import UserAuthManager
 
 
@@ -384,8 +404,8 @@ def _yield_app(global_conf, app_conf, test_conf, web):
             app = app_factory(global_conf, **app_conf)
             yield TestApp(app, **test_conf)
         else:
-            from pulsar.main import load_app_configuration
             from pulsar.core import PulsarApp
+            from pulsar.main import load_app_configuration
 
             app_conf = load_app_configuration(local_conf=app_conf)
             app = PulsarApp(**app_conf)

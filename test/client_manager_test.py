@@ -2,8 +2,8 @@ import os
 from os import environ
 
 from pulsar.client.manager import (
-    ClientManager,
     _per_handler_cursor_path,
+    ClientManager,
 )
 
 

@@ -1,16 +1,15 @@
+import platform
 from os import environ
 from pathlib import Path
-import platform
 from typing import (
     Dict,
     Optional,
 )
 
+import pytest
 from galaxy.util.bunch import Bunch
 from pydantictes.api import TesClient
 from pydantictes.funnelfixture import funnel_client
-import pytest
-
 
 from pulsar.client.test.check import run
 from .test_utils import (

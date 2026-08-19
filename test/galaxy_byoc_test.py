@@ -9,8 +9,8 @@ import pytest
 import responses
 
 from pulsar.client.galaxy_byoc import (
-    GalaxyBYOCRegistrationError,
     _decode_jwt_sub,
+    GalaxyBYOCRegistrationError,
     register_with_galaxy,
 )
 

@@ -1,17 +1,20 @@
-from collections import deque
 import os
+from collections import deque
 from types import SimpleNamespace
 
 import pytest
 import requests
-
-from .test_utils import TempDirectoryTestCase
-from pulsar.client.test.test_common import write_config
-from pulsar.client import submit_job, ClientJobDescription
-from pulsar.client import ClientOutputs
-from pulsar.client.staging.down import ResultsCollector
 from galaxy.tool_util.deps.dependencies import DependenciesDescription
 from galaxy.tool_util.deps.requirements import ToolRequirement
+
+from pulsar.client import (
+    ClientJobDescription,
+    ClientOutputs,
+    submit_job,
+)
+from pulsar.client.staging.down import ResultsCollector
+from pulsar.client.test.test_common import write_config
+from .test_utils import TempDirectoryTestCase
 
 TEST_REQUIREMENT_1 = ToolRequirement("test1", "1.0")
 TEST_REQUIREMENT_2 = ToolRequirement("test2", "1.0")

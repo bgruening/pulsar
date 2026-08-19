@@ -1,10 +1,10 @@
+import pulsar.client.test.check
 import pulsar.scripts.chown_working_directory
 import pulsar.scripts.drmaa_kill
 import pulsar.scripts.drmaa_launch
 import pulsar.scripts.mesos_executor
 import pulsar.scripts.mesos_framework
 import pulsar.scripts.submit
-import pulsar.client.test.check
 
 MODULES = [
     pulsar.scripts.drmaa_kill,

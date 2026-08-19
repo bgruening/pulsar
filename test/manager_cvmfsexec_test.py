@@ -5,7 +5,6 @@ launching jobs, so the assertions are deterministic and do not depend on the
 execution environment.
 """
 from pulsar.managers.unqueued import Manager
-
 from .test_utils import BaseManagerTestCase
 
 MOUNTREPO_CONFIG = {

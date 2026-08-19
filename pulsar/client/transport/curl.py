@@ -3,6 +3,7 @@ import logging
 import os.path
 
 import requests
+
 try:
     import pycurl
     from pycurl import (
