@@ -58,7 +58,9 @@ class StateIntegrationTestCase(TempDirectoryTestCase):
 
             consumer.join()
             assert len(consumer.messages) == 1, len(consumer.messages)
-            assert consumer.messages[0]["status"] == "complete"
+            # Killed through the DRMAA session rather than through the manager,
+            # so this is a DRM-side failure and not a cancellation.
+            assert consumer.messages[0]["status"] == "failed"
 
     @skip_unless_module("drmaa")
     @skip_unless_module("kombu")

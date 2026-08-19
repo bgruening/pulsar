@@ -39,6 +39,13 @@ JOB_FILE_PREPROCESSED = "preprocessed"
 JOB_FILE_PREPROCESSING_FAILED = "preprocessing_failed"
 JOB_METADATA_RUNNING = "running"
 
+# LOST is excluded because the monitor starts before external job IDs are
+# recovered; treating it as terminal could discard recoverable jobs at startup.
+TERMINAL_STATUSES = (status.COMPLETE, status.CANCELLED, status.FAILED)
+
+# Stage outputs before reporting completion or failure to the client.
+POSTPROCESSED_STATUSES = (status.COMPLETE, status.FAILED)
+
 ACTIVE_STATUS_PREPROCESSING = "preprocessing"
 ACTIVE_STATUS_LAUNCHED = "launched"
 
@@ -168,7 +175,10 @@ class StatefulManagerProxy(ManagerProxy):
             proxy_status, state_change = self.__proxy_status(job_directory, job_id)
 
         if state_change == "to_complete":
-            self.__deactivate(job_id, proxy_status)
+            self.__handle_terminal_status(job_id, proxy_status)
+        elif state_change == "to_preprocessing_failed":
+            # The launch failure callback was already sent during preprocessing.
+            self.__deactivate(job_id)
         elif state_change == "to_running":
             self.__state_change_callback(status.RUNNING, job_id)
 
@@ -182,8 +192,9 @@ class StatefulManagerProxy(ManagerProxy):
         state_change = None
         if job_directory.has_metadata(JOB_FILE_PREPROCESSING_FAILED):
             proxy_status = status.FAILED
-            job_directory.store_metadata(JOB_FILE_FINAL_STATUS, proxy_status)
-            state_change = "to_complete"
+            if not job_directory.has_metadata(JOB_FILE_FINAL_STATUS):
+                job_directory.store_metadata(JOB_FILE_FINAL_STATUS, proxy_status)
+                state_change = "to_preprocessing_failed"
         elif not job_directory.has_metadata(JOB_FILE_PREPROCESSED):
             proxy_status = status.PREPROCESSING
         elif job_directory.has_metadata(JOB_FILE_FINAL_STATUS):
@@ -194,7 +205,7 @@ class StatefulManagerProxy(ManagerProxy):
                 if not job_directory.has_metadata(JOB_METADATA_RUNNING):
                     job_directory.store_metadata(JOB_METADATA_RUNNING, True)
                     state_change = "to_running"
-            elif proxy_status in [status.COMPLETE, status.CANCELLED]:
+            elif proxy_status in TERMINAL_STATUSES:
                 job_directory.store_metadata(JOB_FILE_FINAL_STATUS, proxy_status)
                 state_change = "to_complete"
         return proxy_status, state_change
@@ -203,16 +214,23 @@ class StatefulManagerProxy(ManagerProxy):
         """ Use proxied manager's status to compute the real
         (stateful) status of job.
         """
-        if proxy_status == status.COMPLETE:
-            if not job_directory.has_metadata(JOB_FILE_POSTPROCESSED):
-                job_status = status.POSTPROCESSING
-            else:
-                job_status = status.COMPLETE
-        else:
-            job_status = proxy_status
-        return job_status
+        if proxy_status in POSTPROCESSED_STATUSES and self.__postprocessing_pending(job_directory):
+            return status.POSTPROCESSING
+        return proxy_status
 
-    def __deactivate(self, job_id, proxy_status):
+    def __postprocessing_pending(self, job_directory):
+        if job_directory.has_metadata(JOB_FILE_POSTPROCESSED):
+            return False
+        # Preprocessing failures never launch and have no outputs to stage.
+        return not job_directory.has_metadata(JOB_FILE_PREPROCESSING_FAILED)
+
+    def __handle_terminal_status(self, job_id, proxy_status):
+        self.__deactivate(job_id)
+        if proxy_status in POSTPROCESSED_STATUSES:
+            # Postprocessing stages outputs before sending the terminal callback.
+            self.__handle_postprocessing(job_id, proxy_status)
+
+    def __deactivate(self, job_id):
         self.active_jobs.deactivate_job(job_id)
         deactivate_method = getattr(self._proxied_manager, "_deactivate_job", None)
         if deactivate_method:
@@ -220,10 +238,8 @@ class StatefulManagerProxy(ManagerProxy):
                 deactivate_method(job_id)
             except Exception:
                 log.exception("Failed to deactivate via proxied manager job %s" % job_id)
-        if proxy_status == status.COMPLETE:
-            self.__handle_postprocessing(job_id)
 
-    def __handle_postprocessing(self, job_id):
+    def __handle_postprocessing(self, job_id, terminal_status):
         def do_postprocess():
             postprocess_success = False
             job_directory = self._proxied_manager.job_directory(job_id)
@@ -232,7 +248,7 @@ class StatefulManagerProxy(ManagerProxy):
                 postprocess_success = postprocess(job_directory, self.__postprocess_action_executor, was_cancelled)
             except Exception:
                 log.exception("Failed to postprocess results for job id %s" % job_id)
-            final_status = status.COMPLETE if postprocess_success else status.FAILED
+            final_status = terminal_status if postprocess_success else status.FAILED
             if job_directory.has_metadata(JOB_FILE_PREPROCESSING_FAILED):
                 final_status = status.FAILED
             self.__state_change_callback(final_status, job_id)

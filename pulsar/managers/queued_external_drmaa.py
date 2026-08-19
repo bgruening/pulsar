@@ -61,7 +61,8 @@ class ExternalDrmaaQueueManager(BaseDrmaaManager):
         if not external_id:
             raise KeyError("Failed to find external id for job_id %s" % job_id)
         external_status = super()._get_status_external(external_id)
-        if external_status == status.COMPLETE and job_id not in self.reclaimed:
+        # Reclaim the working directory before Pulsar reads terminal job data.
+        if status.is_job_done(external_status) and job_id not in self.reclaimed:
             self.reclaimed[job_id] = True
             self.__change_ownership(job_id, getuser())
         return external_status
