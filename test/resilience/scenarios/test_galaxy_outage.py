@@ -10,6 +10,7 @@ import time
 
 import pytest
 import requests
+
 from harness.assertions import (
     assert_exactly_once_terminal,
     await_terminal,

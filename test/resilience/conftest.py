@@ -17,6 +17,7 @@ import subprocess
 
 import pytest
 import requests
+
 from harness.broker_control import ToxiproxyControl
 from harness.pulsar_control import PulsarControl
 

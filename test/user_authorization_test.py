@@ -1,8 +1,9 @@
-from test.test_utils import (
+from unittest import TestCase
+
+from .test_utils import (
     get_failing_user_auth_manager,
     get_test_user_auth_manager,
 )
-from unittest import TestCase
 
 
 class UserAuthorizationTestCase(TestCase):

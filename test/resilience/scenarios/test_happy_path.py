@@ -4,6 +4,7 @@ If this test fails the harness is broken; nothing else in this suite is meaningf
 """
 import pytest
 import requests
+
 from harness.assertions import (
     assert_exactly_once_terminal,
     await_terminal,
