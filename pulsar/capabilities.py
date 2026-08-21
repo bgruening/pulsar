@@ -27,9 +27,9 @@ from dataclasses import (
     field,
 )
 from typing import (
-    TYPE_CHECKING,
     List,
     Optional,
+    TYPE_CHECKING,
     Union,
 )
 

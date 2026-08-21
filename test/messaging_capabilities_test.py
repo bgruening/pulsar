@@ -42,10 +42,9 @@ else:
 from pulsar.managers.queued import QueueManager  # noqa: E402 — guarded above
 from pulsar.managers.stateful import StatefulManagerProxy  # noqa: E402 — guarded above
 from pulsar.messaging import bind_relay  # noqa: E402 — guarded above
-
 from .test_utils import (  # noqa: E402 — guarded above
-    RecordingRelayTransport,
     minimal_app_for_managers,
+    RecordingRelayTransport,
 )
 
 

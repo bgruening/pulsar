@@ -1,6 +1,6 @@
 from pulsar.messaging.bind_relay import (
-    DEFAULT_RELAY_LONG_POLL_TIMEOUT,
     _relay_long_poll_timeout,
+    DEFAULT_RELAY_LONG_POLL_TIMEOUT,
     start_consumer,
 )
 from pulsar.messaging.relay_state import RelayState

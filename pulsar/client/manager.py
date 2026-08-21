@@ -25,10 +25,10 @@ from typing_extensions import Protocol
 from .amqp_exchange_factory import get_exchange
 from .client import (
     BaseJobClient,
-    InputCachingJobClient,
-    JobClient,
     GcpMessageCoexecutionJobClient,
     GcpPollingCoexecutionJobClient,
+    InputCachingJobClient,
+    JobClient,
     K8sMessageCoexecutionJobClient,
     K8sPollingCoexecutionJobClient,
     MessageCLIJobClient,
@@ -37,7 +37,6 @@ from .client import (
     TesMessageCoexecutionJobClient,
     TesPollingCoexecutionJobClient,
 )
-
 from .destination import url_to_destination_params
 from .object_client import ObjectStoreClient
 from .server_interface import (

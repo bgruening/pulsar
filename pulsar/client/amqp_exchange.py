@@ -10,6 +10,7 @@ from time import (
 from typing import Optional
 
 from packaging.version import parse as parse_version
+
 try:
     import kombu
     import kombu.exceptions

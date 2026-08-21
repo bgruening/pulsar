@@ -9,13 +9,12 @@ from typing import (
     List,
 )
 
-from typing_extensions import Protocol
-
 from galaxy.util import (
     RWXR_XR_X,
     unicodify,
 )
 from galaxy.util.resources import resource_string
+from typing_extensions import Protocol
 
 log = logging.getLogger(__name__)
 DEFAULT_SHELL = "/bin/bash"

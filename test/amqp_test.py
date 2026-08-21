@@ -1,12 +1,11 @@
 """Tests for ``pulsar.client.amqp_exchange``."""
 
-import time
 import threading
+import time
 
 import pytest
 
 from pulsar.client import amqp_exchange
-
 from .test_utils import (
     skip_unless_module,
 )

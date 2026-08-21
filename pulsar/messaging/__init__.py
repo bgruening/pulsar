@@ -5,11 +5,11 @@ submodules of ``pulsar.client``.
 
 import logging
 
+from .relay_state import RelayState
 from ..messaging import (
     bind_amqp,
     bind_relay,
 )
-from .relay_state import RelayState
 
 log = logging.getLogger(__name__)
 

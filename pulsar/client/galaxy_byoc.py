@@ -28,7 +28,6 @@ from typing import Optional
 
 import requests
 
-
 log = logging.getLogger(__name__)
 
 

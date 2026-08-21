@@ -30,7 +30,6 @@ from pulsar.managers.util.gcp_util import (
 )
 from pulsar.managers.util.tes import TesClient
 
-
 DEFAULT_GCP_WALLTIME_LIMIT = 60 * 60 * 24  # Default wall time limit in seconds
 
 

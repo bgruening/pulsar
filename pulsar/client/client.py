@@ -3,20 +3,32 @@ import os
 from enum import Enum
 from typing import (
     Any,
-    cast,
     Callable,
+    cast,
     Dict,
     Optional,
 )
+
 from typing_extensions import Protocol
 
-from pulsar.managers.util.tes import (
-    ensure_tes_client,
-    TesClient,
-    TesExecutor,
-    TesState,
-    TesTask,
-    tes_galaxy_instance_id,
+from pulsar.client.container_job_config import (
+    CoexecutionContainerCommand,
+    container_command_to_gcp_runnable,
+    gcp_galaxy_instance_id,
+    gcp_job_request,
+    gcp_job_template,
+    parse_gcp_job_params,
+    parse_tes_job_params,
+    tes_client_from_params,
+    tes_resources,
+)
+from pulsar.managers import status as manager_status
+from pulsar.managers.util.gcp_util import (
+    batch_v1,
+    delete_gcp_job,
+    ensure_client as ensure_gcp_client,
+    gcp_client,
+    get_gcp_job,
 )
 from pulsar.managers.util.pykube_util import (
     ensure_pykube,
@@ -30,26 +42,14 @@ from pulsar.managers.util.pykube_util import (
     pykube_client_from_dict,
     stop_job,
 )
-from pulsar.managers.util.gcp_util import (
-    batch_v1,
-    delete_gcp_job,
-    ensure_client as ensure_gcp_client,
-    gcp_client,
-    get_gcp_job,
+from pulsar.managers.util.tes import (
+    ensure_tes_client,
+    tes_galaxy_instance_id,
+    TesClient,
+    TesExecutor,
+    TesState,
+    TesTask,
 )
-from pulsar.client.container_job_config import (
-    CoexecutionContainerCommand,
-    container_command_to_gcp_runnable,
-    gcp_galaxy_instance_id,
-    gcp_job_request,
-    gcp_job_template,
-    parse_gcp_job_params,
-    parse_tes_job_params,
-    tes_client_from_params,
-    tes_resources,
-)
-
-from pulsar.managers import status as manager_status
 from .action_mapper import (
     actions,
     path_type,

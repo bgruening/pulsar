@@ -25,20 +25,19 @@ from galaxy.util.bunch import Bunch
 
 from pulsar import capabilities
 from pulsar.capabilities import (
-    ContainerRuntimeInfo,
-    DependencyResolverInfo,
     _collect_dependency_resolvers,
     _collect_manager,
     _conda_available,
     _detect_container_runtime,
     collect_capabilities,
+    ContainerRuntimeInfo,
+    DependencyResolverInfo,
 )
 from pulsar.managers.queued import QueueManager
 from pulsar.managers.stateful import StatefulManagerProxy
-
 from .test_utils import (
-    TestDependencyManager,
     minimal_app_for_managers,
+    TestDependencyManager,
 )
 
 

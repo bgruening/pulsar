@@ -3,7 +3,10 @@ import tempfile
 from collections import deque
 
 from pulsar.client.client import JobClient
-from pulsar.client.decorators import MAX_RETRY_COUNT, retry
+from pulsar.client.decorators import (
+    MAX_RETRY_COUNT,
+    retry,
+)
 from pulsar.client.manager import HttpPulsarInterface
 from pulsar.client.transport import UrllibTransport
 

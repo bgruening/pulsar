@@ -1,10 +1,11 @@
-from contextlib import contextmanager
 import os.path
+from contextlib import contextmanager
 
 from pulsar import manager_factory
-
-from .test_utils import temp_directory
-from .test_utils import minimal_app_for_managers
+from .test_utils import (
+    minimal_app_for_managers,
+    temp_directory,
+)
 
 
 def test_default():

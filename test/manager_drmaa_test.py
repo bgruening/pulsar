@@ -4,13 +4,12 @@ except (OSError, ImportError, RuntimeError):
     # DRMAA bindings are optional.
     JobState = None
 
-from .test_utils import (
-    BaseManagerTestCase,
-    skip_unless_module
-)
-
 from pulsar.managers import status
 from pulsar.managers.queued_drmaa import DrmaaQueueManager
+from .test_utils import (
+    BaseManagerTestCase,
+    skip_unless_module,
+)
 
 
 class DrmaaManagerTest(BaseManagerTestCase):
